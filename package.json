@@ -1,0 +1,12 @@
+{
+  "name": "tiarina-chat-bot",
+  "version": "1.0.0",
+  "description": "Agent chat via Telegram bot, ditenagai Gemini (tanpa dependensi)",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
