@@ -42,6 +42,7 @@ Rambu konten (wajib):
 - Jangan mengarang fakta, angka, atau nama produk. Kalau ragu, tulis secara umum.`;
 
 const HARI = 864e5;
+const MAKS_UTAS = 8; // bagian per postingan: 1 postingan utama + balasan berantai
 
 module.exports = function createThreads(deps) {
   const { say, tg, llmText, searchWeb, wib, readJson, writeJson, dataDir, redact, owner } = deps;
@@ -58,9 +59,9 @@ module.exports = function createThreads(deps) {
 
   const bawaan = () => ({
     jadwal: process.env.THREADS_JADWAL || '19:00',
-    mode: (process.env.THREADS_MODE || '').toLowerCase() === 'otomatis' ? 'otomatis' : 'setuju',
+    mode: (process.env.THREADS_MODE || '').toLowerCase() === 'setuju' ? 'setuju' : 'otomatis',
     topik: process.env.THREADS_TOPIK || 'acak',
-    panjang: Math.min(4, Math.max(1, parseInt(process.env.THREADS_PANJANG || '1', 10) || 1)),
+    panjang: Math.min(MAKS_UTAS, Math.max(1, parseInt(process.env.THREADS_PANJANG || '1', 10) || 1)),
     gaya: process.env.THREADS_GAYA || GAYA_BAWAAN,
     persona: process.env.THREADS_PERSONA || PERSONA_BAWAAN,
     jeda: false,
@@ -199,9 +200,9 @@ module.exports = function createThreads(deps) {
   async function th(method, p, params = {}, tok = token()) {
     const q = new URLSearchParams({ ...params, access_token: tok });
     const opts = { signal: AbortSignal.timeout(30000) };
-    const res = method === 'GET'
-      ? await fetch(`${BASE}${p}?${q}`, opts)
-      : await fetch(`${BASE}${p}`, { ...opts, method: 'POST', body: q });
+    const res = method === 'POST'
+      ? await fetch(`${BASE}${p}`, { ...opts, method: 'POST', body: q })
+      : await fetch(`${BASE}${p}?${q}`, { ...opts, method });
     const j = await res.json().catch(() => ({}));
     if (!res.ok || j.error) throw new Error(`Threads ${res.status}: ${sensor(j.error?.message || JSON.stringify(j)).slice(0, 200)}`);
     return j;
@@ -340,8 +341,9 @@ module.exports = function createThreads(deps) {
     return JSON.parse(s.slice(a, b + 1));
   }
 
-  async function tulis(topikPaksa) {
+  async function tulis(topikPaksa, utas) {
     const topik = pilihTopik(topikPaksa);
+    const panjang = utas || st.set.panjang;
     let konteks = '';
     if (/AI|teknologi|tech/i.test(topik)) {
       try {
@@ -357,15 +359,15 @@ ${st.set.gaya}
 
 ${ATURAN}`;
     const user = `Topik: ${topik}
-Jumlah bagian: ${st.set.panjang} (setiap bagian maksimal 480 karakter; jika lebih dari satu, bagian berikutnya melanjutkan seperti utas).
+Jumlah bagian: tepat ${panjang} (setiap bagian maksimal 480 karakter; jika lebih dari satu, ini utas: bagian 1 adalah hook yang membuat orang ingin membuka balasannya, tiap bagian berikutnya melanjutkan cerita dari bagian sebelumnya dan bisa dibaca sebagai satu alur, bagian terakhir menutup dengan kesimpulan atau ajakan ngobrol ringan).
 Hook yang sudah pernah dipakai, jangan diulang atau dibuat mirip:
 ${hindari}${konteks}
 
 Balas HANYA dengan JSON: {"hook":"baris pertama","bagian":["teks bagian 1"]}`;
     const j = bacaJson(await llmText(system, user));
-    const bagian = (Array.isArray(j.bagian) ? j.bagian : []).map((x) => String(x).trim()).filter(Boolean).flatMap(potong).slice(0, 6);
+    const bagian = (Array.isArray(j.bagian) ? j.bagian : []).map((x) => String(x).trim()).filter(Boolean).flatMap(potong).slice(0, MAKS_UTAS);
     if (!bagian.length) throw new Error('Draf kosong. Coba /buat lagi.');
-    return { topik, hook: String(j.hook || bagian[0].split('\n')[0]).slice(0, 120), bagian, dibuat: wib() };
+    return { topik, utas: panjang, hook: String(j.hook || bagian[0].split('\n')[0]).slice(0, 120), bagian, dibuat: wib() };
   }
 
   // tulisan untuk jadwal: pakai topik titipan (/nanti) sekali, lalu kembali normal
@@ -379,35 +381,58 @@ Balas HANYA dengan JSON: {"hook":"baris pertama","bagian":["teks bagian 1"]}`;
   async function posting(draf) {
     if (!adaToken()) throw new Error('Token Threads belum ada. Kirim /token TOKEN atau isi THREADS_ACCESS_TOKEN di Environment.');
     let balasKe = null, pertama = null;
+    const ids = [];
     for (const teks of draf.bagian) {
       const c = await th('POST', `/${USER}/threads`, { media_type: 'TEXT', text: teks, ...(balasKe ? { reply_to_id: balasKe } : {}) });
       await sleep(3000);
       const p = await th('POST', `/${USER}/threads_publish`, { creation_id: c.id });
       balasKe = p.id;
+      ids.push(p.id);
       pertama = pertama || p.id;
     }
     let link = '';
     try { link = (await th('GET', `/${pertama}`, { fields: 'permalink' })).permalink || ''; } catch { /* link opsional */ }
     st.terakhirPosting = sekarang().tanggal;
-    st.riwayat = [...st.riwayat, { tanggal: st.terakhirPosting, topik: draf.topik, hook: draf.hook }].slice(-30);
+    st.riwayat = [...st.riwayat, { tanggal: st.terakhirPosting, topik: draf.topik, hook: draf.hook, ids, link }].slice(-30);
     st.draf = null;
     simpan();
     return link;
   }
 
-  async function kirimDraf(chat, draf, awalan = '') {
-    const isi = draf.bagian.length > 1
-      ? draf.bagian.map((b, i) => `[${i + 1}/${draf.bagian.length}]\n${b}`).join('\n\n')
-      : draf.bagian[0];
-    await tg('sendMessage', {
-      chat_id: chat,
-      text: `${awalan}Draf Threads (${draf.topik}):\n\n${isi}`.slice(0, 4000),
-      reply_markup: { inline_keyboard: [
-        [{ text: 'Posting sekarang', callback_data: 'th:post' }, { text: `Jadwalkan ${st.set.jadwal}`, callback_data: 'th:sched' }],
-        [{ text: 'Tulis ulang', callback_data: 'th:redo' }, { text: 'Lewati', callback_data: 'th:skip' }],
-      ] },
-    });
+  // preview isi yang sudah terposting, dengan tombol hapus sebagai pengaman
+  async function kirimPreview(chat, draf, link, awalan = 'Terposting') {
+    const n = draf.bagian.length;
+    const isi = n > 1 ? draf.bagian.map((b, i) => `[${i + 1}/${n}]\n${b}`).join('\n\n') : draf.bagian[0];
+    const r = st.riwayat.at(-1);
+    const tombol = r?.ids?.length ? { inline_keyboard: [[{ text: '🗑 Hapus dari Threads', callback_data: `th:del:${r.ids[0]}` }]] } : undefined;
+    const teks = `${awalan} (${draf.topik}${n > 1 ? `, ${n} utas` : ''}):${link ? `\n${link}` : ''}\n\n${isi}`;
+    if (teks.length <= 4000) return tg('sendMessage', { chat_id: chat, text: teks, ...(tombol ? { reply_markup: tombol } : {}) });
+    await say(chat, teks);
+    if (tombol) await tg('sendMessage', { chat_id: chat, text: 'Postingan di atas:', reply_markup: tombol });
   }
+  async function hapusPostingan(chat, idPertama) {
+    const r = st.riwayat.find((x) => x.ids?.[0] === idPertama);
+    if (!r) return say(chat, 'Data postingan ini sudah tidak ada di bot (mungkin setelah deploy ulang). Hapus manual di aplikasi Threads.');
+    if (r.dihapus) return say(chat, 'Postingan ini sudah dihapus.');
+    for (const id of [...r.ids].reverse()) await th('DELETE', `/${id}`); // balasan dulu, lalu postingan utama
+    r.dihapus = true;
+    simpan();
+    await say(chat, `Postingan "${r.hook}" (${r.ids.length} bagian) sudah dihapus dari Threads.`);
+  }
+
+  async function kirimDraf(chat, draf, awalan = '') {
+    const n = draf.bagian.length;
+    const isi = n > 1 ? draf.bagian.map((b, i) => `[${i + 1}/${n}]\n${b}`).join('\n\n') : draf.bagian[0];
+    const judul = `${awalan}Draf Threads (${draf.topik})${n > 1 ? `, ${n} utas` : ''}:\n\n`;
+    const tombol = { inline_keyboard: [
+      [{ text: 'Posting sekarang', callback_data: 'th:post' }, { text: `Jadwalkan ${st.set.jadwal}`, callback_data: 'th:sched' }],
+      [{ text: 'Tulis ulang', callback_data: 'th:redo' }, { text: 'Lewati', callback_data: 'th:skip' }],
+    ] };
+    if ((judul + isi).length <= 4000) return tg('sendMessage', { chat_id: chat, text: judul + isi, reply_markup: tombol });
+    await say(chat, judul + isi);
+    await tg('sendMessage', { chat_id: chat, text: `Draf di atas (${n} utas) mau diapakan?`, reply_markup: tombol });
+  }
+
 
   // ---------- perintah Telegram ----------
   let sibuk = false;
@@ -434,8 +459,9 @@ ${daftar}
 Perintah:
 /dadakan topik - draf topik dadakan sekarang (sama dengan /buat topik)
 /nanti topik - titip topik untuk posting terjadwal berikutnya (/nanti batal)
-/buat, /posting, /jadwal 19:00, /mode setuju|otomatis
-/topik acak|nomor|teks, /panjang 1-4, /gaya teks|reset, /persona teks|reset
+/buat - draf dulu (tidak langsung posting), /posting, /jadwal 19:00
+/mode otomatis (langsung posting, preview dikirim ke sini) | setuju (draf disetujui dulu)
+/topik acak|nomor|teks, /panjang 1-8, /gaya teks|reset, /persona teks|reset
 /jeda, /lanjut, /token TOKEN_BARU`;
   }
 
@@ -466,7 +492,7 @@ Perintah:
       else { st.topikNanti = arg; simpan(); await say(chat, `Oke, posting terjadwal berikutnya (${st.set.jadwal} WIB) akan membahas: ${arg}. Setelah itu kembali ke topik biasa.`); }
     } else if (cmd === '/panjang') {
       const n = parseInt(arg, 10);
-      if (!(n >= 1 && n <= 4)) await say(chat, 'Isi 1 sampai 4. Contoh: /panjang 2');
+      if (!(n >= 1 && n <= MAKS_UTAS)) await say(chat, `Isi 1 sampai ${MAKS_UTAS}. Contoh: /panjang 3 (1 postingan + 2 balasan bersambung)`);
       else { st.set.panjang = n; simpan(); await say(chat, `Setiap postingan: ${n} bagian.`); }
     } else if (cmd === '/gaya' || cmd === '/persona') {
       const key = cmd.slice(1);
@@ -478,8 +504,16 @@ Perintah:
     } else if (cmd === '/buat' || cmd === '/dadakan') {
       if (cmd === '/dadakan' && !arg) { await say(chat, 'Tulis topiknya. Contoh: /dadakan hujan deras pas pulang kantor'); return true; }
       const ok = await kunci(async () => {
-        await say(chat, 'Menulis draf...');
-        try { st.draf = await tulis(arg || null); simpan(); await kirimDraf(chat, st.draf); }
+        await say(chat, cmd === '/dadakan' && st.set.mode === 'otomatis' && adaToken() ? 'Menulis dan memposting...' : 'Menulis draf...');
+        const m = /^([1-8])\s*(?:utas|bagian)\b\s*[:|-]?\s*(\S.*)$/is.exec(arg);
+        try {
+          st.draf = m ? await tulis(m[2], +m[1]) : await tulis(arg || null); simpan();
+          if (cmd === '/dadakan' && st.set.mode === 'otomatis' && adaToken()) {
+            const d = st.draf;
+            const link = await posting(d);
+            await kirimPreview(chat, d, link);
+          } else await kirimDraf(chat, st.draf);
+        }
         catch (e) { await say(chat, `Gagal membuat draf: ${pesanGagal(e)}`); }
       });
       if (!ok) await say(chat, 'Fitur Threads sedang memproses sesuatu, tunggu sebentar.');
@@ -487,7 +521,7 @@ Perintah:
       if (!st.draf) await say(chat, 'Belum ada draf. Kirim /buat dulu.');
       else {
         const ok = await kunci(async () => {
-          try { const link = await posting(st.draf); await say(chat, `Terposting.${link ? `\n${link}` : ''}`); }
+          try { const d = st.draf; const link = await posting(d); await kirimPreview(chat, d, link); }
           catch (e) { await say(chat, `Gagal posting: ${pesanGagal(e)}`); }
         });
         if (!ok) await say(chat, 'Fitur Threads sedang memproses sesuatu, tunggu sebentar.');
@@ -531,19 +565,24 @@ Perintah:
     tg('answerCallbackQuery', { callback_query_id: cq.id }).catch(() => {});
     if (!owner || chat !== owner || !String(cq.data || '').startsWith('th:')) return;
     const aksi = cq.data.slice(3);
+    if (aksi.startsWith('del:')) {
+      try { await hapusPostingan(chat, aksi.slice(4)); } catch (e) { await say(chat, `Gagal menghapus: ${pesanGagal(e)}`); }
+      return;
+    }
     if (!st.draf) return say(chat, 'Draf ini sudah tidak aktif. Kirim /buat untuk membuat yang baru.');
     const ok = await kunci(async () => {
       try {
         if (aksi === 'post') {
           await say(chat, 'Memposting...');
-          const link = await posting(st.draf);
-          await say(chat, `Terposting.${link ? `\n${link}` : ''}`);
+          const d = st.draf;
+          const link = await posting(d);
+          await kirimPreview(chat, d, link);
         } else if (aksi === 'sched') {
           st.draf.disetujui = true; simpan();
           await say(chat, `Oke, diposting jam ${st.set.jadwal} WIB (atau segera kalau jam itu sudah lewat hari ini).`);
         } else if (aksi === 'redo') {
           await say(chat, 'Menulis ulang...');
-          st.draf = await tulis(st.draf.topik); simpan();
+          st.draf = await tulis(st.draf.topik, st.draf.utas); simpan();
           await kirimDraf(chat, st.draf);
         } else if (aksi === 'skip') {
           st.draf = null; st.drafTanggal = sekarang().tanggal; simpan();
@@ -570,8 +609,9 @@ Perintah:
       try {
         if (st.set.mode === 'setuju') {
           if (st.draf?.disetujui && menit >= j && adaToken()) {
-            const link = await posting(st.draf);
-            await say(owner, `Posting terjadwal terkirim.${link ? `\n${link}` : ''}`);
+            const d = st.draf;
+            const link = await posting(d);
+            await kirimPreview(owner, d, link, 'Posting terjadwal terkirim');
           } else if (st.drafTanggal !== tanggal && menit >= Math.max(0, j - 60) && menit < j + 120) {
             st.drafTanggal = tanggal; simpan();
             st.draf = await tulisTerjadwal(); simpan();
@@ -583,7 +623,7 @@ Perintah:
         if (await sudahPostingHariIni()) { st.terakhirPosting = tanggal; simpan(); return; }
         const draf = await tulisTerjadwal();
         const link = await posting(draf);
-        await say(owner, `Posting harian terkirim (${draf.topik}).${link ? `\n${link}` : ''}`);
+        await kirimPreview(owner, draf, link, 'Posting harian terkirim');
       } catch (e) {
         st.gagal = { [tanggal]: (st.gagal[tanggal] || 0) + 1 };
         st.cobaLagi = Date.now() + 10 * 60000;

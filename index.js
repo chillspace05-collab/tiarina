@@ -633,7 +633,7 @@ async function handle(msg) {
   if (text === TOMBOL_THREADS || /^\/modethreads(@\S+)?$/i.test(text)) {
     if (!threads.aktif) return say(chat, 'Fitur Threads tidak aktif di bot ini.');
     setMode(chat, 'threads');
-    return sayTombol(chat, 'Mode Threads aktif. Kirim topik apa saja, nanti kubuatkan drafnya. Draf tidak diposting sebelum kamu tekan tombol Posting atau Jadwalkan.\n\n/threads - status dan pengaturan (jadwal, mode setuju/otomatis, topik)\n/posting - posting draf terakhir');
+    return sayTombol(chat, 'Mode Threads aktif. Kirim topik apa saja, nanti kubuatkan drafnya. Mau utas bersambung? Awali dengan jumlahnya, misalnya: 5 utas pengalaman pertama jadi ASN (2-8 utas). Di mode otomatis langsung diposting lalu preview-nya dikirim ke sini (ada tombol hapus). Di mode setuju dikirim sebagai draf dulu.\n\n/threads - status dan pengaturan (jadwal, mode setuju/otomatis, topik)\n/posting - posting draf terakhir');
   }
   if (await threads.handleCommand(chat, text, msg.message_id)) return;
 
