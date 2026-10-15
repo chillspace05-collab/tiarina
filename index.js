@@ -602,6 +602,19 @@ async function tesRun(chat, lengkap) {
   }
 }
 
+// ---------- mode chat: asisten atau Threads (tombol di bawah kolom chat) ----------
+const F_MODE = path.join(DATA_DIR, 'mode.json');
+const TOMBOL_ASISTEN = '🤖 Mode Asisten';
+const TOMBOL_THREADS = '🧵 Mode Threads';
+const KEYBOARD = { keyboard: [[{ text: TOMBOL_ASISTEN }, { text: TOMBOL_THREADS }]], resize_keyboard: true, is_persistent: true };
+const modeChat = (chat) => readJson(F_MODE, {})[chat] || 'asisten';
+function setMode(chat, mode) {
+  const semua = readJson(F_MODE, {});
+  semua[chat] = mode;
+  writeJson(F_MODE, semua);
+}
+const sayTombol = (chat, text) => tg('sendMessage', { chat_id: chat, text, reply_markup: KEYBOARD });
+
 // ---------- pesan masuk ----------
 async function handle(msg) {
   const chat = String(msg.chat.id);
@@ -613,10 +626,19 @@ async function handle(msg) {
     return say(chat, `Chat ID kamu: ${chat}\nIsi OWNER_CHAT_ID di Environment dengan angka ini, lalu deploy ulang. Setelah itu bot siap dipakai.`);
   }
   if (!OWNER || chat !== OWNER) return; // hanya melayani pemilik
+  if (text === TOMBOL_ASISTEN || /^\/asisten(@\S+)?$/i.test(text)) {
+    setMode(chat, 'asisten');
+    return sayTombol(chat, 'Mode Asisten aktif. Tulis apa saja: cari info, catat, ingatkan, atau buat gambar.');
+  }
+  if (text === TOMBOL_THREADS || /^\/modethreads(@\S+)?$/i.test(text)) {
+    if (!threads.aktif) return say(chat, 'Fitur Threads tidak aktif di bot ini.');
+    setMode(chat, 'threads');
+    return sayTombol(chat, 'Mode Threads aktif. Kirim topik apa saja, nanti kubuatkan drafnya. Draf tidak diposting sebelum kamu tekan tombol Posting atau Jadwalkan.\n\n/threads - status dan pengaturan (jadwal, mode setuju/otomatis, topik)\n/posting - posting draf terakhir');
+  }
   if (await threads.handleCommand(chat, text, msg.message_id)) return;
 
   if (text.startsWith('/start') || text.startsWith('/bantuan')) {
-    return say(chat, 'Aku agent-mu. Contoh perintah:\n- "cari berita terbaru tentang ..."\n- "buatkan paket Shorts tentang fakta unik ..."\n- "gambar kucing astronaut gaya kartun"\n- "catat: beli domain"\n- "ingatkan aku 30 menit lagi untuk upload"\n\n/reset - hapus riwayat percakapan\n/model - lihat atau ganti model (gemini / tiarina / tokenomix)\n/status - cek kondisi model\n/threads - posting harian ke Threads (status dan pengaturan)\n/dadakan topik - draf Threads topik dadakan\n/token TOKEN - perbarui token Threads\n/tes - tes run model, alat, dan Threads (tanpa posting)\n/tes lengkap - plus cari web, gambar, dan contoh draf');
+    return sayTombol(chat, 'Aku agent-mu. Contoh perintah:\n- "cari berita terbaru tentang ..."\n- "buatkan paket Shorts tentang fakta unik ..."\n- "gambar kucing astronaut gaya kartun"\n- "catat: beli domain"\n- "ingatkan aku 30 menit lagi untuk upload"\n\n/reset - hapus riwayat percakapan\n/model - lihat atau ganti model (gemini / tiarina / tokenomix)\n/status - cek kondisi model\n/threads - posting harian ke Threads (status dan pengaturan)\n/dadakan topik - draf Threads topik dadakan\n/token TOKEN - perbarui token Threads\n\nTombol di bawah: Mode Asisten (pesan dijawab agent) atau Mode Threads (pesan jadi draf Threads).\n/tes - tes run model, alat, dan Threads (tanpa posting)\n/tes lengkap - plus cari web, gambar, dan contoh draf');
   }
   if (/^\/tes(@\S+)?(\s|$)/i.test(text)) {
     if (busy.has(chat)) return say(chat, 'Masih memproses permintaan sebelumnya, tunggu sebentar ya.');
@@ -631,7 +653,7 @@ async function handle(msg) {
   }
   if (text.startsWith('/status')) {
     const st = (p, ok) => !ok ? 'tidak diatur' : Date.now() < downUntil[p] ? `bermasalah (dilewati sampai ${wib(downUntil[p]).slice(11)} WIB)` : 'siap';
-    return say(chat, `Utama: ${provider}\nGemini: ${st('gemini', Boolean(KEY))} [${GEMINI_MODELS.join(', ')}]\nTiarina: ${st('tiarina', HAS_TIARINA)} [${LLM_MODELS.join(', ')}]\nTokenomix: ${st('tokenomix', HAS_TOKENOMIX)} [${TKX_MODELS.join(', ')}]`);
+    return say(chat, `Mode chat: ${modeChat(chat)}\nUtama: ${provider}\nGemini: ${st('gemini', Boolean(KEY))} [${GEMINI_MODELS.join(', ')}]\nTiarina: ${st('tiarina', HAS_TIARINA)} [${LLM_MODELS.join(', ')}]\nTokenomix: ${st('tokenomix', HAS_TOKENOMIX)} [${TKX_MODELS.join(', ')}]`);
   }
   if (text.startsWith('/model')) {
     let arg = (text.split(/\s+/)[1] || '').toLowerCase();
@@ -643,6 +665,11 @@ async function handle(msg) {
     histories.delete(chat);
     historiesOA.delete(chat);
     return say(chat, `Beralih ke ${provider}. Riwayat percakapan dihapus.`);
+  }
+
+  // Mode Threads: teks biasa menjadi topik draf
+  if (modeChat(chat) === 'threads' && threads.aktif && !text.startsWith('/')) {
+    return threads.handleCommand(chat, `/dadakan ${text}`);
   }
 
   if (busy.has(chat)) return say(chat, 'Masih memproses permintaan sebelumnya, tunggu sebentar ya.');

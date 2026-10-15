@@ -27,6 +27,12 @@ Catatan: data (catatan, pengingat, hitungan gambar) disimpan di folder `data` da
 kecuali ditulis dengan awalan `BOT2_` (mis. `BOT2_OWNER_CHAT_ID`). Data tiap bot terpisah (`data/` dan `data/bot2/`).
 Fitur Threads hanya jalan di satu bot (`THREADS_BOT`, bawaan bot 2) supaya tidak posting dobel.
 
+## Mode Asisten dan Mode Threads
+
+Tombol di bawah kolom chat: **Mode Asisten** (pesan dijawab agent) dan **Mode Threads** (setiap pesan dianggap topik
+dan dibuatkan draf Threads dengan tombol Posting/Jadwalkan/Tulis ulang/Lewati). Bisa juga lewat /asisten dan /modethreads.
+Posting terjadwal tetap berjalan di mode mana pun.
+
 ## Tes run
 
 `/tes` mengecek setiap model (menjawab dan memanggil alat), alat catatan, penyimpanan, token dan kuota Threads.

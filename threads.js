@@ -593,5 +593,5 @@ Perintah:
     });
   }
 
-  return { handleCommand, handleCallback, tick, tes };
+  return { handleCommand, handleCallback, tick, tes, aktif: AKTIF };
 };
