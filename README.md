@@ -21,6 +21,17 @@ JANGAN menaruh token atau API key di file repo (repo ini publik). Pakai tab Envi
 
 Catatan: data (catatan, pengingat, hitungan gambar) disimpan di folder `data` dan hilang saat container dibuat ulang, kecuali folder itu dihubungkan ke volume.
 
+## Dua bot dalam satu aplikasi
+
+`start.js` menjalankan bot kedua bila `BOT2_TELEGRAM_BOT_TOKEN` diisi. Variabel lain dipakai bersama,
+kecuali ditulis dengan awalan `BOT2_` (mis. `BOT2_OWNER_CHAT_ID`). Data tiap bot terpisah (`data/` dan `data/bot2/`).
+Fitur Threads hanya jalan di satu bot (`THREADS_BOT`, bawaan bot 2) supaya tidak posting dobel.
+
+## Tes run
+
+`/tes` mengecek setiap model (menjawab dan memanggil alat), alat catatan, penyimpanan, token dan kuota Threads.
+`/tes lengkap` juga mencoba cari web, membuat gambar, dan menulis contoh draf. Tidak ada yang diposting.
+
 ## Posting harian ke Threads
 Bot membuat dan memposting satu tulisan per hari ke akun Threads-mu.
 Topik bawaan bergiliran: kehidupan sehari-hari, kesehatan mental sudut pandang ASN, dunia kerja ASN (non-sensitif),

@@ -48,6 +48,7 @@ module.exports = function createThreads(deps) {
   const BASE = (process.env.THREADS_API_BASE || 'https://graph.threads.net/v1.0').replace(/\/+$/, '');
   const ORIGIN = new URL(BASE).origin;
   const USER = process.env.THREADS_USER_ID || 'me';
+  const AKTIF = !process.env.THREADS_NONAKTIF; // dimatikan start.js untuk bot yang bukan bot Threads
   const ENV_TOKEN = (process.env.THREADS_ACCESS_TOKEN || '').trim();
   const TOKEN_TAG = ENV_TOKEN.slice(-10);
   const APP_SECRET = (process.env.THREADS_APP_SECRET || '').trim();
@@ -444,6 +445,7 @@ Perintah:
     const arg = rest.join(' ').trim();
     const daftar = ['/threads', '/jadwal', '/mode', '/topik', '/panjang', '/gaya', '/persona', '/buat', '/dadakan', '/nanti', '/posting', '/jeda', '/lanjut', '/token'];
     if (!daftar.includes(cmd)) return false;
+    if (!AKTIF) { await say(chat, 'Fitur Threads tidak aktif di bot ini.'); return true; }
 
     if (cmd === '/threads') await say(chat, status());
     else if (cmd === '/token') {
@@ -498,6 +500,7 @@ Perintah:
   // ---------- tes run (/tes): cek tanpa memposting apa pun ----------
   async function tes(lengkap) {
     const baris = [];
+    if (!AKTIF) return { baris: ['➖ Threads: tidak aktif di bot ini'], draf: null };
     if (!adaToken()) baris.push('➖ Threads: token belum ada (isi THREADS_ACCESS_TOKEN atau kirim /token TOKEN)');
     else {
       try {
@@ -553,7 +556,7 @@ Perintah:
 
   // ---------- jadwal (dipanggil tiap menit) ----------
   async function tick() {
-    if (!owner || !siap) return;
+    if (!AKTIF || !owner || !siap) return;
     await cadangkanJikaBerubah();
     await perbaruiToken().catch(() => {});
     await cekMasaToken().catch(() => {});

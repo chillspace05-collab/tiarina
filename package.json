@@ -4,7 +4,7 @@
   "description": "AI agent pribadi via Telegram (Gemini): cari web, gambar, catatan, pengingat",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node start.js"
   },
   "engines": {
     "node": ">=18"
