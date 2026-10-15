@@ -112,14 +112,29 @@ module.exports = function createThreads(deps) {
     d.setAuthTag(b.subarray(12, 28));
     return JSON.parse(Buffer.concat([d.update(b.subarray(28)), d.final()]).toString('utf8'));
   }
+  // isi cadangan: token dari bot + pengaturan yang diubah lewat Telegram (beda dari Environment)
+  function isiCadangan() {
+    const b = bawaan();
+    const ubah = {};
+    for (const k of Object.keys(st.set)) if (st.set[k] !== b[k]) ubah[k] = st.set[k];
+    return { versi: 2, token: tokenBot(), ubah, topikNanti: st.topikNanti || '' };
+  }
+  let terakhirDicadangkan = '';
   async function simpanCadangan() {
-    const t = tokenBot();
-    if (!owner || !t) return;
-    const r = await tg('sendMessage', {
-      chat_id: owner,
-      disable_notification: true,
-      text: `Cadangan token Threads (terenkripsi). Jangan dihapus atau di-unpin; bot memakainya lagi setelah deploy ulang.\n${enkripsi(t)}`,
-    });
+    if (!owner) return;
+    const isi = isiCadangan();
+    if (!isi.token && !Object.keys(isi.ubah).length && !isi.topikNanti && !st.cadanganId) return;
+    let teks = `Cadangan token dan pengaturan Threads (terenkripsi). Jangan dihapus atau di-unpin; bot memakainya lagi setelah deploy ulang.\n${enkripsi(isi)}`;
+    if (teks.length > 4000) { // gaya/persona panjang: lewati agar muat satu pesan Telegram
+      delete isi.ubah.gaya; delete isi.ubah.persona;
+      teks = teks.slice(0, teks.indexOf('\n') + 1) + enkripsi(isi);
+    }
+    terakhirDicadangkan = JSON.stringify(isi);
+    if (st.cadanganId) { // perbarui pesan yang sudah di-pin, tanpa pesan baru
+      const e = await tg('editMessageText', { chat_id: owner, message_id: st.cadanganId, text: teks });
+      if (e?.ok || /not modified/i.test(e?.description || '')) return;
+    }
+    const r = await tg('sendMessage', { chat_id: owner, disable_notification: true, text: teks });
     if (!r?.ok) return;
     await tg('pinChatMessage', { chat_id: owner, message_id: r.result.message_id, disable_notification: true }).catch(() => {});
     if (st.cadanganId && st.cadanganId !== r.result.message_id) {
@@ -129,25 +144,47 @@ module.exports = function createThreads(deps) {
     simpan();
   }
   async function pulihkanCadangan() {
-    if (!owner || tokenBot()) return;
+    if (!owner || Object.keys(s0).length) return; // data/ masih ada: bukan deploy ulang
     try {
       const r = await tg('getChat', { chat_id: owner });
       const pm = r?.result?.pinned_message;
       const m = /THB1:[A-Za-z0-9+/=]+/.exec(pm?.text || '');
       if (!m) return;
-      const t = dekripsi(m[0]);
-      if (t.dari !== TOKEN_TAG) return; // Environment sudah diganti: pakai yang di Environment
-      if (t.kedaluwarsa && t.kedaluwarsa < Date.now()) return;
-      st.token = t;
+      const c = dekripsi(m[0]);
+      const isi = c.versi === 2 ? c : { token: c, ubah: {} }; // cadangan lama hanya berisi token
       st.cadanganId = pm.message_id;
+      Object.assign(st.set, isi.ubah || {});
+      st.topikNanti = isi.topikNanti || '';
+      const t = isi.token;
+      // token dipakai lagi hanya bila Environment belum diganti dan belum kedaluwarsa
+      if (t && t.dari === TOKEN_TAG && !(t.kedaluwarsa && t.kedaluwarsa < Date.now())) st.token = t;
+      terakhirDicadangkan = JSON.stringify(isiCadangan());
       simpan();
-      console.log('Token Threads dipulihkan dari cadangan Telegram.');
+      console.log('Token dan pengaturan Threads dipulihkan dari cadangan Telegram.');
     } catch (e) {
       console.error('Gagal memulihkan cadangan token:', sensor(e.message));
     }
   }
+  // token pendek (1 jam) di Environment ditukar sekali menjadi token 60 hari saat bot start
+  async function tukarTokenEnv() {
+    if (!ENV_TOKEN || !APP_SECRET || tokenBot()) return;
+    try {
+      const j = await getJson(`${ORIGIN}/access_token?grant_type=th_exchange_token&client_secret=${enc(APP_SECRET)}&access_token=${enc(ENV_TOKEN)}`);
+      if (!j.access_token) return;
+      st.token = { value: j.access_token, dari: TOKEN_TAG, diperbarui: Date.now(), kedaluwarsa: Date.now() + (j.expires_in || 0) * 1000, perkiraan: false };
+      simpan();
+      console.log('Token Threads dari Environment ditukar menjadi token 60 hari.');
+      await simpanCadangan().catch(() => {});
+    } catch (e) {
+      // token sudah 60 hari, atau sudah habis: dipakai apa adanya
+      console.error('Token Threads tidak ditukar:', sensor(e.message));
+    }
+  }
+  async function cadangkanJikaBerubah() {
+    if (siap && JSON.stringify(isiCadangan()) !== terakhirDicadangkan) await simpanCadangan().catch(() => {});
+  }
   let siap = false;
-  pulihkanCadangan().finally(() => { siap = true; });
+  pulihkanCadangan().then(tukarTokenEnv).finally(() => { siap = true; });
 
   // ---------- waktu ----------
   const keMenit = (hhmm) => {
@@ -454,7 +491,36 @@ Perintah:
         if (!ok) await say(chat, 'Fitur Threads sedang memproses sesuatu, tunggu sebentar.');
       }
     }
+    await cadangkanJikaBerubah();
     return true;
+  }
+
+  // ---------- tes run (/tes): cek tanpa memposting apa pun ----------
+  async function tes(lengkap) {
+    const baris = [];
+    if (!adaToken()) baris.push('➖ Threads: token belum ada (isi THREADS_ACCESS_TOKEN atau kirim /token TOKEN)');
+    else {
+      try {
+        const me = await th('GET', '/me', { fields: 'id,username' });
+        baris.push(`✅ Token Threads: @${me.username || me.id}, ${infoToken()}`);
+      } catch (e) { baris.push(`❌ Token Threads: ${pesanGagal(e).split('\n')[0]}`); }
+      try {
+        const q = await th('GET', `/${USER}/threads_publishing_limit`, { fields: 'quota_usage,config' });
+        const d = q.data?.[0];
+        if (d) baris.push(`✅ Kuota posting 24 jam: ${d.quota_usage}/${d.config?.quota_total ?? '?'}`);
+      } catch (e) { baris.push(`❌ Kuota posting: ${sensor(e.message).slice(0, 120)}`); }
+    }
+    baris.push(`ℹ️ Jadwal ${st.set.jadwal} WIB, mode ${st.set.mode}${st.set.jeda ? ' (DIJEDA)' : ''}, terakhir posting ${st.terakhirPosting || '-'}`);
+    baris.push(st.cadanganId ? '✅ Cadangan token/pengaturan ter-pin di chat' : 'ℹ️ Belum ada cadangan ter-pin (dibuat otomatis saat ada token/pengaturan dari Telegram)');
+    let draf = null;
+    if (lengkap) {
+      const t0 = Date.now();
+      try {
+        draf = await tulis(null); // hanya ditulis, tidak disimpan sebagai draf dan tidak diposting
+        baris.push(`✅ Tulis draf Threads (${((Date.now() - t0) / 1000).toFixed(1)} dtk, topik: ${draf.topik})`);
+      } catch (e) { baris.push(`❌ Tulis draf Threads: ${pesanGagal(e).split('\n')[0]}`); }
+    }
+    return { baris, draf };
   }
 
   async function handleCallback(cq) {
@@ -488,6 +554,7 @@ Perintah:
   // ---------- jadwal (dipanggil tiap menit) ----------
   async function tick() {
     if (!owner || !siap) return;
+    await cadangkanJikaBerubah();
     await perbaruiToken().catch(() => {});
     await cekMasaToken().catch(() => {});
     if (st.set.jeda || sibuk) return;
@@ -523,5 +590,5 @@ Perintah:
     });
   }
 
-  return { handleCommand, handleCallback, tick };
+  return { handleCommand, handleCallback, tick, tes };
 };

@@ -45,7 +45,7 @@ const OA = {
   tiarina: { base: LLM_BASE, key: LLM_KEY, models: LLM_MODELS, ok: HAS_TIARINA, start: 0 },
   tokenomix: { base: TKX_BASE, key: TKX_KEY, models: TKX_MODELS, ok: HAS_TOKENOMIX, start: 0 },
 };
-const PROVIDERS = ['gemini', 'tiarina', 'tokenomix'];
+const PROVIDERS = ['gemini', 'tokenomix', 'tiarina']; // urutan cadangan
 const hasProvider = (p) => (p === 'gemini' ? Boolean(KEY) : Boolean(OA[p]?.ok));
 
 let provider = (process.env.LLM_PROVIDER || (KEY ? 'gemini' : HAS_TIARINA ? 'tiarina' : 'tokenomix')).toLowerCase();
@@ -527,6 +527,81 @@ const threads = require('./threads')({
   owner: OWNER,
 });
 
+// ---------- tes run (/tes, /tes lengkap): cek model, alat, dan Threads tanpa memposting ----------
+async function tesRun(chat, lengkap) {
+  await say(chat, `Menjalankan tes${lengkap ? ' lengkap' : ''}... (sekitar ${lengkap ? '1-2 menit' : '30 detik'})`);
+  const baris = [];
+  const ukur = async (label, fn) => {
+    const t0 = Date.now();
+    try {
+      const r = await batas.run({ ms: TIMEOUT_MS }, fn);
+      baris.push(`✅ ${label} (${((Date.now() - t0) / 1000).toFixed(1)} dtk)${r ? `: ${String(r).slice(0, 80)}` : ''}`);
+    } catch (e) { baris.push(`❌ ${label}: ${redact(e.message).slice(0, 150)}`); }
+  };
+  const teksGemini = (d) => (d.candidates?.[0]?.content?.parts || []).map((x) => x.text || '').join('').trim();
+  const panggilan = (parts) => parts.flatMap((x) => (x.functionCall ? [x.functionCall.name] : []));
+  const ping = [{ role: 'user', content: 'Balas satu kata saja: siap' }];
+  const minta = 'Simpan catatan berisi: tes alat';
+
+  // 1. model: menjawab + memanggil alat (model yang tidak memanggil alat membuat fitur agent gagal diam-diam)
+  for (const p of PROVIDERS) {
+    if (!hasProvider(p)) { baris.push(`➖ ${p}: tidak diatur`); continue; }
+    if (p === 'gemini') {
+      await ukur('gemini menjawab', async () => teksGemini(await geminiAny(GEMINI_MODELS, { contents: [{ role: 'user', parts: [{ text: ping[0].content }] }] })));
+      await ukur('gemini memanggil alat', async () => {
+        const d = await geminiAny(GEMINI_MODELS, { contents: [{ role: 'user', parts: [{ text: minta }] }], tools: [{ functionDeclarations: DECLS }] });
+        const n = panggilan(d.candidates?.[0]?.content?.parts || []);
+        if (!n.length) throw new Error('model menjawab tanpa memanggil alat');
+        return n.join(', ');
+      });
+    } else {
+      await ukur(`${p} menjawab`, async () => {
+        const d = await openaiChat({ messages: ping }, p);
+        return `${OA[p].models[OA[p].start]}: ${d.choices?.[0]?.message?.content || '(kosong)'}`;
+      });
+      await ukur(`${p} memanggil alat`, async () => {
+        const d = await openaiChat({ messages: [{ role: 'user', content: minta }], tools: OA_TOOLS }, p);
+        const tc = d.choices?.[0]?.message?.tool_calls || [];
+        if (!tc.length) throw new Error(`${OA[p].models[OA[p].start]} menjawab tanpa memanggil alat`);
+        JSON.parse(tc[0].function.arguments || '{}'); // argumen harus JSON utuh
+        return `${OA[p].models[OA[p].start]}: ${tc.map((c) => c.function.name).join(', ')}`;
+      });
+    }
+  }
+
+  // 2. alat: dijalankan langsung lalu dibersihkan lagi
+  await ukur('alat catatan (simpan, lihat, hapus)', async () => {
+    const r = await tools.simpan_catatan({ teks: '[tes otomatis]' });
+    const id = Number(/#(\d+)/.exec(r.hasil)?.[1]);
+    if (!(await tools.lihat_catatan()).catatan.some((n) => n.id === id)) throw new Error('catatan tidak tersimpan');
+    await tools.hapus_catatan({ id });
+  });
+  await ukur('penyimpanan data/', async () => {
+    const f = path.join(DATA_DIR, 'tes.tmp');
+    fs.writeFileSync(f, 'ok');
+    fs.unlinkSync(f);
+  });
+  if (lengkap && KEY) {
+    await ukur('alat cari web', async () => {
+      const r = await tools.cari_web({ query: 'tanggal hari ini dan satu berita utama Indonesia' });
+      return `${r.sumber.length} sumber`;
+    });
+    await ukur('alat buat gambar', () => tools.buat_gambar({ prompt: 'a small cute robot waving, flat illustration', keterangan: 'Tes alat gambar' }, { chat, images: 0 })
+      .then((r) => { if (r.error) throw new Error(r.error); return 'gambar terkirim'; }));
+  }
+
+  // 3. Threads
+  const th = await threads.tes(lengkap);
+  baris.push(...th.baris);
+
+  const gagal = baris.filter((b) => b.startsWith('❌')).length;
+  await say(chat, `Hasil tes${lengkap ? ' lengkap' : ''}: ${gagal ? `${gagal} gagal` : 'semua lolos'}\n\n${baris.join('\n')}${lengkap ? '' : '\n\nKirim /tes lengkap untuk juga mencoba cari web, buat gambar, dan menulis draf Threads.'}`);
+  if (th.draf) {
+    const isi = th.draf.bagian.map((b, i) => (th.draf.bagian.length > 1 ? `[${i + 1}/${th.draf.bagian.length}]\n${b}` : b)).join('\n\n');
+    await say(chat, `Contoh draf (TIDAK diposting, topik: ${th.draf.topik}):\n\n${isi}`);
+  }
+}
+
 // ---------- pesan masuk ----------
 async function handle(msg) {
   const chat = String(msg.chat.id);
@@ -541,7 +616,13 @@ async function handle(msg) {
   if (await threads.handleCommand(chat, text, msg.message_id)) return;
 
   if (text.startsWith('/start') || text.startsWith('/bantuan')) {
-    return say(chat, 'Aku agent-mu. Contoh perintah:\n- "cari berita terbaru tentang ..."\n- "buatkan paket Shorts tentang fakta unik ..."\n- "gambar kucing astronaut gaya kartun"\n- "catat: beli domain"\n- "ingatkan aku 30 menit lagi untuk upload"\n\n/reset - hapus riwayat percakapan\n/model - lihat atau ganti model (gemini / tiarina / tokenomix)\n/status - cek kondisi model\n/threads - posting harian ke Threads (status dan pengaturan)\n/dadakan topik - draf Threads topik dadakan\n/token TOKEN - perbarui token Threads');
+    return say(chat, 'Aku agent-mu. Contoh perintah:\n- "cari berita terbaru tentang ..."\n- "buatkan paket Shorts tentang fakta unik ..."\n- "gambar kucing astronaut gaya kartun"\n- "catat: beli domain"\n- "ingatkan aku 30 menit lagi untuk upload"\n\n/reset - hapus riwayat percakapan\n/model - lihat atau ganti model (gemini / tiarina / tokenomix)\n/status - cek kondisi model\n/threads - posting harian ke Threads (status dan pengaturan)\n/dadakan topik - draf Threads topik dadakan\n/token TOKEN - perbarui token Threads\n/tes - tes run model, alat, dan Threads (tanpa posting)\n/tes lengkap - plus cari web, gambar, dan contoh draf');
+  }
+  if (/^\/tes(@\S+)?(\s|$)/i.test(text)) {
+    if (busy.has(chat)) return say(chat, 'Masih memproses permintaan sebelumnya, tunggu sebentar ya.');
+    busy.add(chat);
+    try { await tesRun(chat, /lengkap/i.test(text)); } catch (e) { await say(chat, `Tes berhenti: ${redact(e.message)}`); } finally { busy.delete(chat); }
+    return;
   }
   if (text.startsWith('/reset')) {
     histories.delete(chat);
