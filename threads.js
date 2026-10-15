@@ -13,27 +13,40 @@ const PILAR = [
   'AI dan teknologi yang sedang tren',
 ];
 
-const GAYA_BAWAAN = `Semi-formal, hangat, dan elegan, dengan rasa logat Solo yang halus.
-Dasar tulisan bahasa Indonesia yang rapi; rasa Solo muncul lewat selipan kecil, bukan kalimat Jawa penuh.
-Bahan selipan (pilih paling banyak dua per postingan, tidak harus ada di setiap postingan):
-- Partikel santai khas Solo: "og" (seperti "kok/loh", misal "Iya og, ternyata..."), "no" (seperti "dong"), "lho", "to", "wae".
-- Ungkapan halus: "nggih", "monggo", "nyuwun sewu", "matur nuwun", "sumeleh", "alon-alon waton kelakon", "ojo kesusu".
-- Kosakata keseharian Solo: "jan tenan" (sungguh), "naknu" (kalau begitu), "sek/kosek" (sebentar), "yah mene" (jam segini),
-  "ngeleh" (lapar), "kebeteng" (tertahan hujan), "tletik" (gerimis), "udan kethek" (hujan saat cerah), "mondo" (kurang manis),
-  "wedangan di hik" (nongkrong di angkringan), "bangjo" (lampu merah), "jagongan" (duduk santai), "gembrebeg" (meriang).
-Istilah asing (Inggris) boleh sesekali bila lazim, misalnya "deadline", "burnout", "PR (personal record)", "workflow".
+const GAYA_BAWAAN = `Bahasa Indonesia sehari-hari yang luwes, seperti orang Solo yang menulis di media sosialnya sendiri.
+Register menyesuaikan topik dan suasana: bisa santai seperti ngobrol ke teman, bisa agak serius dan reflektif, bisa receh dan menertawakan diri sendiri. Tidak harus rapi seperti artikel.
+Boleh kalimat tidak lengkap, boleh mulai dengan huruf kecil, boleh campur sedikit istilah Inggris yang memang biasa dipakai ("deadline", "burnout", "PR", "workflow", "meeting").
+Kata ganti "aku", atau tanpa kata ganti sama sekali. Sesekali "kita" bila wajar, jangan menggurui dengan "kamu harus".
+Rasa Solo cukup sebagai bumbu dan tidak wajib di setiap postingan (paling banyak satu-dua selipan), misalnya partikel "og", "lho", "to", "wae", "no";
+ungkapan "nggih", "monggo", "nyuwun sewu", "matur nuwun", "sumeleh", "alon-alon waton kelakon", "ojo kesusu";
+kosakata "jan tenan", "naknu", "sek", "yah mene", "ngeleh", "kebeteng", "tletik", "udan kethek", "mondo", "wedangan di hik", "bangjo", "jagongan", "gembrebeg".
 Dilarang memakai umpatan atau plesetan umpatan. Jangan menjelaskan arti kata Jawa kecuali benar-benar perlu.`;
 
 const PERSONA_BAWAAN =
   'Seorang pegawai ASN yang rutin gym, melek teknologi, berlogat Solo, dan senang merenungkan hal-hal kecil dalam keseharian.';
 
-const ATURAN = `Aturan menulis agar terasa ditulis manusia:
-- Baris pertama adalah hook yang kuat dan jujur (maksimal 12 kata), bukan clickbait bohong.
-- Kalimat bervariasi panjangnya. Pakai detail kecil yang konkret dan terasa nyata.
-- Tanpa hashtag. Emoji paling banyak satu, boleh tidak ada sama sekali.
-- Tanpa daftar bernomor atau poin-poin, tanpa huruf tebal, tanpa tanda pisah panjang.
-- Hindari frasa klise seperti "Di era digital ini", "Mari kita", "Yuk simak", "Kesimpulannya", "Penting untuk diingat", "Tidak dapat dipungkiri".
-- Penutup bervariasi: kadang pertanyaan ke pembaca, kadang kalimat yang menggantung, kadang punchline tenang.
+// frasa dan kata yang terlalu sering muncul di tulisan AI; dicek otomatis setelah draf jadi
+const KLISE = [
+  'di era digital', 'di era modern', 'di era sekarang', 'di zaman sekarang ini', 'di tengah hiruk pikuk', 'di tengah kesibukan',
+  'mari kita', 'yuk simak', 'yuk kita', 'kesimpulannya', 'pada akhirnya', 'penting untuk diingat', 'perlu diingat', 'ingatlah',
+  'tidak dapat dipungkiri', 'tak dapat dipungkiri', 'tidak bisa dipungkiri', 'tak bisa dipungkiri', 'tanpa disadari', 'tak terasa',
+  'bukan sekadar', 'lebih dari sekadar', 'bukan hanya', 'tetapi juga', 'sejatinya', 'sesungguhnya', 'hakikatnya', 'nyatanya',
+  'percayalah', 'siapa sangka', 'ternyata oh ternyata', 'yang menarik adalah', 'satu hal yang pasti', 'menjadi kunci', 'kunci utama',
+  'langkah kecil', 'perjalanan hidup', 'sebuah perjalanan', 'self-love', 'self love', 'menemukan makna', 'esensi', 'keseimbangan hidup',
+  'semoga bermanfaat', 'jangan lupa untuk', 'bagaimana dengan kamu', 'bagaimana denganmu', 'gimana menurut kalian', 'setuju?',
+  'apakah kamu juga', 'kamu tidak sendiri', 'kamu tidak sendirian', 'it\'s okay', 'its okay', 'valid kok', 'pelan-pelan saja',
+  'healing', 'produktivitas', 'mindset', 'insight', 'game changer', 'level up', 'upgrade diri', 'versi terbaik',
+  'memang benar', 'tentu saja', 'sangatlah', 'merupakan', 'senantiasa', 'tak lain', 'tidak lain adalah',
+];
+const ATURAN = `Aturan menulis agar terasa ditulis manusia, bukan AI:
+- Baris pertama langsung masuk ke hal yang spesifik (kejadian, benda, angka kecil, kalimat orang). Maksimal 12 kata, jujur, bukan clickbait.
+- Tulis dari pengalaman atau pengamatan konkret: tempat, jam, benda, suara, percakapan pendek. Hindari kalimat umum yang bisa ditulis siapa saja.
+- Panjang kalimat dan paragraf tidak seragam. Boleh satu kalimat pendek berdiri sendiri. Jangan setiap paragraf berpola sama.
+- Jangan pakai pola khas AI: kalimat "bukan X, tapi Y", rangkaian tiga hal berirama ("A, B, dan C"), pertanyaan retoris di awal,
+  "Hasilnya?" / "Jawabannya:" sebelum pengungkapan, dan pesan moral atau kesimpulan di akhir.
+- Tidak perlu selalu ada pelajaran. Boleh berhenti di cerita, di kalimat yang menggantung, atau di punchline. Pertanyaan ke pembaca sesekali saja, jangan tiap postingan.
+- Tanpa hashtag. Emoji paling banyak satu, lebih sering tidak ada. Tanpa daftar bernomor atau poin, tanpa huruf tebal, tanpa tanda pisah panjang (—).
+- Jangan memakai kata/frasa ini: ${KLISE.map((k) => `"${k}"`).join(', ')}.
 
 Rambu konten (wajib):
 - Tanpa politik, pemilu, partai, atau tokoh politik. Tanpa SARA.
@@ -41,6 +54,14 @@ Rambu konten (wajib):
 - Kesehatan dan kesehatan mental: informasi umum dan empatik saja. Tanpa diagnosis, tanpa dosis obat atau suplemen, tanpa detail tentang menyakiti diri. Bila relevan, sarankan bicara dengan tenaga profesional.
 - Jangan mengarang fakta, angka, atau nama produk. Kalau ragu, tulis secara umum.`;
 
+const NADA = [
+  'santai seperti cerita ke teman di grup chat',
+  'catatan pendek seperti jurnal pribadi, agak pelan',
+  'receh dan menertawakan diri sendiri',
+  'cerita satu kejadian kecil hari ini, apa adanya',
+  'opini singkat yang agak beda dari kebanyakan orang, tetap sopan',
+  'pengamatan iseng tentang hal sepele yang ternyata menarik',
+];
 const HARI = 864e5;
 const MAKS_JADWAL = 6;
 // "7:00, 12:00 19:00" -> "07:00,12:00,19:00" (urut, unik); null bila ada jam yang salah
@@ -349,6 +370,21 @@ module.exports = function createThreads(deps) {
   }
 
   // ---------- penulisan ----------
+  function cariKlise(teks) {
+    // tanda baca selain ? ' - jadi spasi, lalu cocokkan sebagai kata utuh
+    const t = ` ${String(teks).toLowerCase().replace(/[^\p{L}\d?'\- ]+/gu, ' ').replace(/\s+/g, ' ')} `;
+    return KLISE.filter((k) => t.includes(` ${k} `));
+  }
+  // bekas khas AI yang aman dibersihkan otomatis
+  function rapikan(x) {
+    return String(x)
+      .replace(/\s*[—–]\s*/g, ', ')      // tanda pisah panjang
+      .replace(/\*\*(.+?)\*\*/g, '$1')   // huruf tebal markdown
+      .replace(/(^|\s)#[\p{L}\d_]+/gu, '') // hashtag
+      .replace(/[ \t]+\n/g, '\n')
+      .trim();
+  }
+
   function pilihTopik(paksa) {
     if (paksa) return paksa;
     const t = String(st.set.topik);
@@ -392,6 +428,8 @@ module.exports = function createThreads(deps) {
       } catch { /* tanpa pencarian, tulis secara umum */ }
     }
     const hindari = st.riwayat.slice(-10).map((r) => `- ${r.hook}`).join('\n') || '- (belum ada)';
+    const nada = NADA[Math.floor(Math.random() * NADA.length)];
+    const solo = Math.random() < 0.4 ? 'Boleh ada satu selipan rasa Solo bila pas.' : 'Kali ini tanpa selipan bahasa Jawa.';
     const system = `Kamu menulis postingan Threads untuk akun pribadi.
 Persona penulis: ${st.set.persona}
 Gaya bahasa:
@@ -399,13 +437,23 @@ ${st.set.gaya}
 
 ${ATURAN}`;
     const user = `Topik: ${topik}
-Jumlah bagian: tepat ${panjang} (setiap bagian maksimal 480 karakter; jika lebih dari satu, ini utas: bagian 1 adalah hook yang membuat orang ingin membuka balasannya, tiap bagian berikutnya melanjutkan cerita dari bagian sebelumnya dan bisa dibaca sebagai satu alur, bagian terakhir menutup dengan kesimpulan atau ajakan ngobrol ringan).
+Nada kali ini: ${nada}. ${solo}
+Jumlah bagian: tepat ${panjang} (setiap bagian maksimal 480 karakter; jika lebih dari satu, ini utas: bagian 1 membuat orang ingin membuka balasannya, tiap bagian berikutnya melanjutkan dari bagian sebelumnya sebagai satu alur, bagian terakhir tidak perlu kesimpulan).
 Hook yang sudah pernah dipakai, jangan diulang atau dibuat mirip:
 ${hindari}${konteks}
 
 Balas HANYA dengan JSON: {"hook":"baris pertama","bagian":["teks bagian 1"]}`;
-    const j = bacaJson(await llmText(system, user));
-    const bagian = (Array.isArray(j.bagian) ? j.bagian : []).map((x) => String(x).trim()).filter(Boolean).flatMap(potong).slice(0, MAKS_UTAS);
+    let j = bacaJson(await llmText(system, user));
+    let bagian = (Array.isArray(j.bagian) ? j.bagian : []).map(rapikan).filter(Boolean);
+    const kena = cariKlise(bagian.join('\n'));
+    if (kena.length) { // satu kali tulis ulang tanpa frasa yang terdeteksi
+      try {
+        const j2 = bacaJson(await llmText(system, `${user}\n\nDraf sebelumnya:\n${JSON.stringify({ hook: j.hook, bagian })}\n\nTulis ulang draf itu dengan isi yang sama, tetapi tanpa kata/frasa berikut dan tanpa menggantinya dengan sinonim yang sama klisenya: ${kena.map((k) => `"${k}"`).join(', ')}. Balas HANYA dengan JSON yang sama formatnya.`));
+        const b2 = (Array.isArray(j2.bagian) ? j2.bagian : []).map(rapikan).filter(Boolean);
+        if (b2.length && cariKlise(b2.join('\n')).length < kena.length) { j = j2; bagian = b2; }
+      } catch { /* pakai draf pertama */ }
+    }
+    bagian = bagian.flatMap(potong).slice(0, MAKS_UTAS);
     if (!bagian.length) throw new Error('Draf kosong. Coba /buat lagi.');
     return { topik, utas: panjang, hook: String(j.hook || bagian[0].split('\n')[0]).slice(0, 120), bagian, dibuat: wib() };
   }
