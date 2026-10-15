@@ -31,7 +31,8 @@ Fitur Threads hanya jalan di satu bot (`THREADS_BOT`, bawaan bot 2) supaya tidak
 
 Tombol di bawah kolom chat: **Mode Asisten** (pesan dijawab agent) dan **Mode Threads** (setiap pesan dianggap topik
 dan dibuatkan draf Threads dengan tombol Posting/Jadwalkan/Tulis ulang/Lewati). Bisa juga lewat /asisten dan /modethreads.
-Posting terjadwal tetap berjalan di mode mana pun.
+Posting terjadwal tetap berjalan di mode mana pun. Jadwal bisa beberapa jam sehari (bawaan 07:00, 12:00, 19:00 WIB);
+slot yang terlewat lebih dari 3 jam (mis. bot sedang mati) dilewati, bukan diposting menumpuk.
 
 Di `THREADS_MODE=otomatis` (bawaan) bot langsung posting, lalu mengirim preview lengkap ke Telegram dengan tombol
 **Hapus dari Threads**. Utas bersambung: `/panjang 1-8`, atau per postingan dengan menulis "5 utas topik" di Mode Threads.
@@ -49,7 +50,7 @@ gym, info kesehatan ringan, AI dan teknologi. Rambu konten (tanpa politik, SARA,
 Gaya bawaan: semi-formal dan elegan dengan rasa logat Solo (partikel "og", "no", ungkapan halus, kosakata keseharian Solo), paling banyak dua selipan per postingan.
 
 Perintah: `/threads`, `/buat [topik]`, `/dadakan topik` (draf topik dadakan sekarang), `/nanti topik` (titip topik untuk jadwal berikutnya),
-`/posting`, `/jadwal 19:00`, `/mode setuju|otomatis`, `/topik acak|1-6|teks`, `/panjang 1-8`, `/gaya teks|reset`,
+`/posting`, `/jadwal 07:00,12:00,19:00`, `/mode setuju|otomatis`, `/topik acak|1-6|teks`, `/panjang 1-8`, `/gaya teks|reset`,
 `/persona teks|reset`, `/jeda`, `/lanjut`, `/token TOKEN_BARU`.
 `/buat` sudah bisa dicoba sebelum token Threads diisi (hanya membuat draf).
 
