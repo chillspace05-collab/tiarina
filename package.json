@@ -1,0 +1,12 @@
+{
+  "name": "tiarina-agent",
+  "version": "2.0.0",
+  "description": "AI agent pribadi via Telegram (Gemini): cari web, gambar, catatan, pengingat",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
