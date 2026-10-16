@@ -67,7 +67,7 @@ const NADA = [
   'pengamatan iseng tentang hal sepele yang ternyata menarik',
 ];
 const HARI = 864e5;
-const MAKS_JADWAL = 6;
+const MAKS_JADWAL = 10;
 // "7:00, 12:00 19:00" -> "07:00,12:00,19:00" (urut, unik); null bila ada jam yang salah
 function rapikanJadwal(teks) {
   const jam = String(teks).split(/[,;\s]+/).filter(Boolean);
@@ -129,11 +129,41 @@ function envAkun(n, k) {
 }
 const JADWAL_BAWAAN = { 1: '07:00,12:00,19:00', 2: '08:00,13:00,20:00' };
 
+// Bawaan khusus per akun (dipakai bila THREADSn_X kosong). Akun 2: @jampulang.05, gaya santai-lucu-slengekan.
+const GAYA_SLENGEKAN = `Bahasa Indonesia gaul sehari-hari: santai, lucu, slengekan, seperti orang yang hobi menertawakan hidupnya sendiri di media sosial. Mudah dipahami siapa saja.
+Lucunya datang dari kejadian dan detail yang spesifik, reaksi yang jujur, dan timing kalimat. Bukan dari lelucon template, plesetan yang dipaksakan, atau punchline yang dijelaskan ulang.
+Boleh huruf kecil semua. Boleh singkatan chat yang wajar ("gak", "udah", "aja", "banget", "yg") asal tidak berlebihan. "wkwk" paling banyak sekali dan tidak di setiap postingan.
+Kata ganti "aku", atau tanpa kata ganti. Boleh hiperbola yang jelas bercanda dan self-roasting, tapi tidak merendahkan orang lain, kelompok, atau fisik orang.
+Penulis tinggal di Solo: sesekali boleh satu selipan rasa Solo ("og", "lho", "wae", hik, wedangan, nasi liwet), tidak wajib.
+Hindari gaya yang terasa template: "POV:", "plot twist", "no debat", "bestie", "slay", "auto", "spill", dan kata gaul lain yang terdengar dipaksakan.
+Dilarang memakai umpatan atau plesetan umpatan.`;
+const AKUN_BAWAAN = {
+  2: {
+    jadwal: '07:15,09:20,11:45,13:30,15:40,17:55,20:10,22:05',
+    panjang: '2-5',
+    gaya: GAYA_SLENGEKAN,
+    persona: 'Pekerja kantoran di Solo, niat gym tinggi tapi sering kalah sama kasur, suka ngulik AI dan gadget, dan hobi menertawakan kejadian konyol dalam hidupnya sendiri.',
+    nada: [
+      'receh, menertawakan kejadian konyol yang baru dialami',
+      'curhat lebay yang jelas bercanda, self-roasting',
+      'pengamatan iseng tentang hal sepele yang ternyata kocak',
+      'cerita rencana yang gagal total, diceritakan santai',
+      'komentar slengekan soal kebiasaan sehari-hari orang kebanyakan, tanpa menyindir pihak tertentu',
+      'santai seperti cerita ke teman tongkrongan di hik',
+    ],
+  },
+};
+
 // cfg: { n, banyak(), simpanCadangan(), cadangkan(), adaCadangan() } dari pengelola akun di bawah
 function buatAkun(deps, cfg) {
   const { say: sayAsli, tg, llmText, searchWeb, wib, readJson, writeJson, dataDir, redact, owner } = deps;
   const N = cfg.n;
   const env = (k) => envAkun(N, k);
+  const khusus = AKUN_BAWAAN[N] || {};
+  // urutan: THREADSn_X milik akun ini > bawaan khusus akun > (ikut akun 1)
+  const envSendiri = (k) => (N === 1 ? process.env[`THREADS_${k}`] : process.env[`THREADS${N}_${k}`]) || '';
+  const pakai = (k) => envSendiri(k) || khusus[k.toLowerCase()] || env(k);
+  const NADA_AKUN = khusus.nada || NADA;
   const BASE = (env('API_BASE') || 'https://graph.threads.net/v1.0').replace(/\/+$/, '');
   const ORIGIN = new URL(BASE).origin;
   const USER = env('USER_ID') || 'me';
@@ -151,12 +181,12 @@ function buatAkun(deps, cfg) {
   const say = (chat, text) => sayAsli(chat, labelAkun() + text);
 
   const bawaan = () => ({
-    jadwal: rapikanJadwal(env('JADWAL')) || JADWAL_BAWAAN[N] || JADWAL_BAWAAN[1],
+    jadwal: rapikanJadwal(pakai('JADWAL')) || JADWAL_BAWAAN[N] || JADWAL_BAWAAN[1],
     mode: env('MODE').toLowerCase() === 'setuju' ? 'setuju' : 'otomatis',
     topik: env('TOPIK') || 'acak',
-    panjang: rapikanPanjang(env('PANJANG')) || '2-3',
-    gaya: env('GAYA') || GAYA_BAWAAN,
-    persona: env('PERSONA') || PERSONA_BAWAAN,
+    panjang: rapikanPanjang(pakai('PANJANG')) || '2-3',
+    gaya: pakai('GAYA') || GAYA_BAWAAN,
+    persona: pakai('PERSONA') || PERSONA_BAWAAN,
     jeda: false,
   });
   const s0 = readJson(F, {});
@@ -458,8 +488,8 @@ function buatAkun(deps, cfg) {
       } catch { /* tanpa pencarian, tulis secara umum */ }
     }
     const hindari = st.riwayat.slice(-10).map((r) => `- ${r.hook}`).join('\n') || '- (belum ada)';
-    const nada = NADA[Math.floor(Math.random() * NADA.length)];
-    const asn = Math.random() < 0.15 ? 'Boleh menyebut bahwa penulis ASN bila memang relevan.' : 'Jangan menyebut ASN, PNS, atau instansi; cukup "kerja" atau "kantor" bila perlu.';
+    const nada = NADA_AKUN[Math.floor(Math.random() * NADA_AKUN.length)];
+    const asn = /\bASN\b/.test(st.set.persona) && Math.random() < 0.15 ? 'Boleh menyebut bahwa penulis ASN bila memang relevan.' : 'Jangan menyebut ASN, PNS, atau instansi; cukup "kerja" atau "kantor" bila perlu.';
     const solo = Math.random() < 0.35 ? 'Boleh satu selipan rasa Solo bila pas, jangan dipaksakan.' : 'Kali ini tanpa selipan bahasa Jawa.';
     const system = `Kamu menulis postingan Threads untuk akun pribadi.
 Persona penulis: ${st.set.persona}
