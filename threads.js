@@ -17,10 +17,14 @@ const GAYA_BAWAAN = `Bahasa Indonesia sehari-hari yang umum dan wajar, seperti o
 Register menyesuaikan topik dan suasana: bisa santai, bisa agak serius, bisa sedikit lucu. Tidak harus rapi seperti artikel.
 Pakai kata-kata biasa dan langsung ke maksudnya. Istilah Inggris hanya yang memang umum dipakai sehari-hari ("deadline", "meeting", "update").
 Kata ganti "aku", atau tanpa kata ganti sama sekali. Sesekali "kita" bila wajar, jangan menggurui dengan "kamu harus".
+Penulis tinggal di Solo, jadi sesekali boleh ada sedikit rasa Solo sebagai bumbu, paling banyak satu selipan per postingan dan tidak wajib.
+Pakai yang umum dimengerti orang luar Jawa: partikel "og", "lho", "to", "wae"; ungkapan "monggo", "nggih", "matur nuwun", "alon-alon waton kelakon";
+atau menyebut hal khas Solo secara wajar (wedangan di hik, nasi liwet, timlo, bangjo, Manahan, Ngarsopuro). Jangan menjelaskan arti kata Jawa.
+Bahasa utama tetap Indonesia umum; selipan Jawa tidak boleh membuat kalimat sulit dipahami.
 Dilarang memakai umpatan atau plesetan umpatan.`;
 
 const PERSONA_BAWAAN =
-  'Seorang pegawai ASN yang rutin gym, melek teknologi, dan senang memperhatikan hal-hal kecil dalam keseharian.';
+  'Seorang pegawai ASN yang tinggal di Solo, rutin gym, melek teknologi, dan senang memperhatikan hal-hal kecil dalam keseharian.';
 
 // frasa dan kata yang terlalu sering muncul di tulisan AI; dicek otomatis setelah draf jadi
 const KLISE = [
@@ -443,6 +447,7 @@ module.exports = function createThreads(deps) {
     }
     const hindari = st.riwayat.slice(-10).map((r) => `- ${r.hook}`).join('\n') || '- (belum ada)';
     const nada = NADA[Math.floor(Math.random() * NADA.length)];
+    const solo = Math.random() < 0.35 ? 'Boleh satu selipan rasa Solo bila pas, jangan dipaksakan.' : 'Kali ini tanpa selipan bahasa Jawa.';
     const system = `Kamu menulis postingan Threads untuk akun pribadi.
 Persona penulis: ${st.set.persona}
 Gaya bahasa:
@@ -450,7 +455,7 @@ ${st.set.gaya}
 
 ${ATURAN}`;
     const user = `Topik: ${topik}
-Nada kali ini: ${nada}. Fokus hanya pada topik ini, jangan dicampur istilah atau perumpamaan dari topik lain.
+Nada kali ini: ${nada}. ${solo} Fokus hanya pada topik ini, jangan dicampur istilah atau perumpamaan dari topik lain.
 Jumlah bagian: tepat ${panjang} (setiap bagian maksimal 480 karakter; jika lebih dari satu, ini utas: bagian 1 membuat orang ingin membuka balasannya, tiap bagian berikutnya melanjutkan dari bagian sebelumnya sebagai satu alur, bagian terakhir tidak perlu kesimpulan).
 Hook yang sudah pernah dipakai, jangan diulang atau dibuat mirip:
 ${hindari}${konteks}
