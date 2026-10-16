@@ -13,17 +13,14 @@ const PILAR = [
   'AI dan teknologi yang sedang tren',
 ];
 
-const GAYA_BAWAAN = `Bahasa Indonesia sehari-hari yang luwes, seperti orang Solo yang menulis di media sosialnya sendiri.
-Register menyesuaikan topik dan suasana: bisa santai seperti ngobrol ke teman, bisa agak serius dan reflektif, bisa receh dan menertawakan diri sendiri. Tidak harus rapi seperti artikel.
-Boleh kalimat tidak lengkap, boleh mulai dengan huruf kecil, boleh campur sedikit istilah Inggris yang memang biasa dipakai ("deadline", "burnout", "PR", "workflow", "meeting").
+const GAYA_BAWAAN = `Bahasa Indonesia sehari-hari yang umum dan wajar, seperti orang biasa menulis di media sosialnya sendiri. Mudah dipahami siapa saja.
+Register menyesuaikan topik dan suasana: bisa santai, bisa agak serius, bisa sedikit lucu. Tidak harus rapi seperti artikel.
+Pakai kata-kata biasa dan langsung ke maksudnya. Istilah Inggris hanya yang memang umum dipakai sehari-hari ("deadline", "meeting", "update").
 Kata ganti "aku", atau tanpa kata ganti sama sekali. Sesekali "kita" bila wajar, jangan menggurui dengan "kamu harus".
-Rasa Solo cukup sebagai bumbu dan tidak wajib di setiap postingan (paling banyak satu-dua selipan), misalnya partikel "og", "lho", "to", "wae", "no";
-ungkapan "nggih", "monggo", "nyuwun sewu", "matur nuwun", "sumeleh", "alon-alon waton kelakon", "ojo kesusu";
-kosakata "jan tenan", "naknu", "sek", "yah mene", "ngeleh", "kebeteng", "tletik", "udan kethek", "mondo", "wedangan di hik", "bangjo", "jagongan", "gembrebeg".
-Dilarang memakai umpatan atau plesetan umpatan. Jangan menjelaskan arti kata Jawa kecuali benar-benar perlu.`;
+Dilarang memakai umpatan atau plesetan umpatan.`;
 
 const PERSONA_BAWAAN =
-  'Seorang pegawai ASN yang rutin gym, melek teknologi, berlogat Solo, dan senang merenungkan hal-hal kecil dalam keseharian.';
+  'Seorang pegawai ASN yang rutin gym, melek teknologi, dan senang memperhatikan hal-hal kecil dalam keseharian.';
 
 // frasa dan kata yang terlalu sering muncul di tulisan AI; dicek otomatis setelah draf jadi
 const KLISE = [
@@ -45,6 +42,9 @@ const ATURAN = `Aturan menulis agar terasa ditulis manusia, bukan AI:
 - Jangan pakai pola khas AI: kalimat "bukan X, tapi Y", rangkaian tiga hal berirama ("A, B, dan C"), pertanyaan retoris di awal,
   "Hasilnya?" / "Jawabannya:" sebelum pengungkapan, dan pesan moral atau kesimpulan di akhir.
 - Tidak perlu selalu ada pelajaran. Boleh berhenti di cerita, di kalimat yang menggantung, atau di punchline. Pertanyaan ke pembaca sesekali saja, jangan tiap postingan.
+- Bahas satu topik saja dengan bahasa umum dan apa adanya. Jangan menyambungkan atau membandingkan dengan dunia lain dari persona
+  (gym, kerja ASN, AI/teknologi) lewat perumpamaan atau istilah, misalnya "angkat barbel seperti beban kerja", "otak perlu di-upgrade seperti software", "kerjaan seperti set dan repetisi".
+  Hindari majas dan perumpamaan yang dipaksakan; tulis yang dimaksud secara langsung.
 - Tanpa hashtag. Emoji paling banyak satu, lebih sering tidak ada. Tanpa daftar bernomor atau poin, tanpa huruf tebal, tanpa tanda pisah panjang (—).
 - Jangan memakai kata/frasa ini: ${KLISE.map((k) => `"${k}"`).join(', ')}.
 
@@ -75,6 +75,20 @@ function rapikanJadwal(teks) {
     ok.push(`${m[1].padStart(2, '0')}:${m[2]}`);
   }
   return [...new Set(ok)].sort().join(',');
+}
+// topik Threads (topic_tag) bawaan per pilar; dipakai bila model tidak memberi topik yang valid
+const TAG_PILAR = {
+  'kehidupan sehari-hari yang relatable': 'Daily Life Threads',
+  'kesehatan mental dari sudut pandang pegawai ASN': 'Mental Health Threads',
+  'dunia kerja ASN yang ringan dan non-sensitif': 'Work Life Threads',
+  'gym dan latihan beban': 'Gym Threads',
+  'info kesehatan ringan': 'Health Threads',
+  'AI dan teknologi yang sedang tren': 'AI Threads',
+};
+// aturan Threads: 1-50 karakter, tanpa titik dan "&"
+function rapikanTag(t) {
+  const s = String(t || '').replace(/^#/, '').replace(/[.&#]/g, '').replace(/\s+/g, ' ').trim();
+  return s.length && s.length <= 50 ? s : '';
 }
 const MAKS_UTAS = 8; // bagian per postingan: 1 postingan utama + balasan berantai
 
@@ -429,7 +443,6 @@ module.exports = function createThreads(deps) {
     }
     const hindari = st.riwayat.slice(-10).map((r) => `- ${r.hook}`).join('\n') || '- (belum ada)';
     const nada = NADA[Math.floor(Math.random() * NADA.length)];
-    const solo = Math.random() < 0.4 ? 'Boleh ada satu selipan rasa Solo bila pas.' : 'Kali ini tanpa selipan bahasa Jawa.';
     const system = `Kamu menulis postingan Threads untuk akun pribadi.
 Persona penulis: ${st.set.persona}
 Gaya bahasa:
@@ -437,12 +450,15 @@ ${st.set.gaya}
 
 ${ATURAN}`;
     const user = `Topik: ${topik}
-Nada kali ini: ${nada}. ${solo}
+Nada kali ini: ${nada}. Fokus hanya pada topik ini, jangan dicampur istilah atau perumpamaan dari topik lain.
 Jumlah bagian: tepat ${panjang} (setiap bagian maksimal 480 karakter; jika lebih dari satu, ini utas: bagian 1 membuat orang ingin membuka balasannya, tiap bagian berikutnya melanjutkan dari bagian sebelumnya sebagai satu alur, bagian terakhir tidak perlu kesimpulan).
 Hook yang sudah pernah dipakai, jangan diulang atau dibuat mirip:
 ${hindari}${konteks}
 
-Balas HANYA dengan JSON: {"hook":"baris pertama","bagian":["teks bagian 1"]}`;
+Isi juga "tag": satu topik Threads yang paling relevan dengan isi tulisan, dalam bentuk nama komunitas Threads berbahasa Inggris "<Nama> Threads",
+misalnya "AI Threads", "Tech Threads", "Gym Threads", "Fitness Threads", "Mental Health Threads", "Health Threads", "Work Life Threads", "Daily Life Threads", "Book Threads", "Food Threads". Tanpa titik, tanpa "&", maksimal 50 karakter.
+
+Balas HANYA dengan JSON: {"hook":"baris pertama","tag":"AI Threads","bagian":["teks bagian 1"]}`;
     let j = bacaJson(await llmText(system, user));
     let bagian = (Array.isArray(j.bagian) ? j.bagian : []).map(rapikan).filter(Boolean);
     const kena = cariKlise(bagian.join('\n'));
@@ -455,7 +471,8 @@ Balas HANYA dengan JSON: {"hook":"baris pertama","bagian":["teks bagian 1"]}`;
     }
     bagian = bagian.flatMap(potong).slice(0, MAKS_UTAS);
     if (!bagian.length) throw new Error('Draf kosong. Coba /buat lagi.');
-    return { topik, utas: panjang, hook: String(j.hook || bagian[0].split('\n')[0]).slice(0, 120), bagian, dibuat: wib() };
+    const tag = rapikanTag(j.tag) || TAG_PILAR[topik] || '';
+    return { topik, tag, utas: panjang, hook: String(j.hook || bagian[0].split('\n')[0]).slice(0, 120), bagian, dibuat: wib() };
   }
 
   // tulisan untuk jadwal: pakai topik titipan (/nanti) sekali, lalu kembali normal
@@ -471,7 +488,15 @@ Balas HANYA dengan JSON: {"hook":"baris pertama","bagian":["teks bagian 1"]}`;
     let balasKe = null, pertama = null;
     const ids = [];
     for (const teks of draf.bagian) {
-      const c = await th('POST', `/${USER}/threads`, { media_type: 'TEXT', text: teks, ...(balasKe ? { reply_to_id: balasKe } : {}) });
+      const isi = { media_type: 'TEXT', text: teks, ...(balasKe ? { reply_to_id: balasKe } : {}) };
+      let c;
+      if (!balasKe && draf.tag) { // topik hanya di postingan utama; bila ditolak API, posting tanpa topik
+        try { c = await th('POST', `/${USER}/threads`, { ...isi, topic_tag: draf.tag }); } catch (e) {
+          if (masalahToken(e.message)) throw e;
+          draf.tag = '';
+        }
+      }
+      c = c || await th('POST', `/${USER}/threads`, isi);
       await sleep(3000);
       const p = await th('POST', `/${USER}/threads_publish`, { creation_id: c.id });
       balasKe = p.id;
@@ -481,7 +506,7 @@ Balas HANYA dengan JSON: {"hook":"baris pertama","bagian":["teks bagian 1"]}`;
     let link = '';
     try { link = (await th('GET', `/${pertama}`, { fields: 'permalink' })).permalink || ''; } catch { /* link opsional */ }
     st.terakhirPosting = wib().slice(0, 16);
-    st.riwayat = [...st.riwayat, { tanggal: st.terakhirPosting.slice(0, 10), topik: draf.topik, hook: draf.hook, ids, link }].slice(-30);
+    st.riwayat = [...st.riwayat, { tanggal: st.terakhirPosting.slice(0, 10), topik: draf.topik, tag: draf.tag || '', hook: draf.hook, ids, link }].slice(-30);
     st.draf = null;
     simpan();
     return link;
@@ -493,7 +518,7 @@ Balas HANYA dengan JSON: {"hook":"baris pertama","bagian":["teks bagian 1"]}`;
     const isi = n > 1 ? draf.bagian.map((b, i) => `[${i + 1}/${n}]\n${b}`).join('\n\n') : draf.bagian[0];
     const r = st.riwayat.at(-1);
     const tombol = r?.ids?.length ? { inline_keyboard: [[{ text: '🗑 Hapus dari Threads', callback_data: `th:del:${r.ids[0]}` }]] } : undefined;
-    const teks = `${awalan} (${draf.topik}${n > 1 ? `, ${n} utas` : ''}):${link ? `\n${link}` : ''}\n\n${isi}`;
+    const teks = `${awalan} (${draf.topik}${n > 1 ? `, ${n} utas` : ''}):${draf.tag ? `\nTopik Threads: ${draf.tag}` : ''}${link ? `\n${link}` : ''}\n\n${isi}`;
     if (teks.length <= 4000) return tg('sendMessage', { chat_id: chat, text: teks, ...(tombol ? { reply_markup: tombol } : {}) });
     await say(chat, teks);
     if (tombol) await tg('sendMessage', { chat_id: chat, text: 'Postingan di atas:', reply_markup: tombol });
@@ -511,7 +536,7 @@ Balas HANYA dengan JSON: {"hook":"baris pertama","bagian":["teks bagian 1"]}`;
   async function kirimDraf(chat, draf, awalan = '') {
     const n = draf.bagian.length;
     const isi = n > 1 ? draf.bagian.map((b, i) => `[${i + 1}/${n}]\n${b}`).join('\n\n') : draf.bagian[0];
-    const judul = `${awalan}Draf Threads (${draf.topik})${n > 1 ? `, ${n} utas` : ''}:\n\n`;
+    const judul = `${awalan}Draf Threads (${draf.topik})${n > 1 ? `, ${n} utas` : ''}:${draf.tag ? `\nTopik Threads: ${draf.tag}` : ''}\n\n`;
     const tombol = { inline_keyboard: [
       [{ text: 'Posting sekarang', callback_data: 'th:post' }, { text: `Jadwalkan ${draf.slot || slotBerikutnya()}`, callback_data: 'th:sched' }],
       [{ text: 'Tulis ulang', callback_data: 'th:redo' }, { text: 'Lewati', callback_data: 'th:skip' }],

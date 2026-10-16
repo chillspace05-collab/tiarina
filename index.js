@@ -601,7 +601,7 @@ async function tesRun(chat, lengkap) {
   await say(chat, `Hasil tes${lengkap ? ' lengkap' : ''}: ${gagal ? `${gagal} gagal` : 'semua lolos'}\n\n${baris.join('\n')}${lengkap ? '' : '\n\nKirim /tes lengkap untuk juga mencoba cari web, buat gambar, dan menulis draf Threads.'}`);
   if (th.draf) {
     const isi = th.draf.bagian.map((b, i) => (th.draf.bagian.length > 1 ? `[${i + 1}/${th.draf.bagian.length}]\n${b}` : b)).join('\n\n');
-    await say(chat, `Contoh draf (TIDAK diposting, topik: ${th.draf.topik}):\n\n${isi}`);
+    await say(chat, `Contoh draf (TIDAK diposting, topik: ${th.draf.topik}${th.draf.tag ? `, topik Threads: ${th.draf.tag}` : ''}):\n\n${isi}`);
   }
 }
 
