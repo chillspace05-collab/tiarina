@@ -4,7 +4,7 @@
 const path = require('path');
 const crypto = require('crypto');
 
-const PILAR = [
+const PILAR_UMUM = [
   'kehidupan sehari-hari yang relatable',
   'kesehatan mental sehari-hari',
   'dunia kerja kantoran yang ringan dan non-sensitif',
@@ -104,26 +104,59 @@ function rapikanPanjang(x) {
   return a === b ? String(a) : `${a}-${b}`;
 }
 
-module.exports = function createThreads(deps) {
-  const { say, tg, llmText, searchWeb, wib, readJson, writeJson, dataDir, redact, owner } = deps;
-  const BASE = (process.env.THREADS_API_BASE || 'https://graph.threads.net/v1.0').replace(/\/+$/, '');
+// ---------- cadangan token terenkripsi (disematkan di chat Telegram), satu pesan untuk semua akun ----------
+const KUNCI = crypto.createHash('sha256').update('threads-cadangan:' + (process.env.TELEGRAM_BOT_TOKEN || '')).digest();
+function enkripsi(obj) {
+  const iv = crypto.randomBytes(12);
+  const c = crypto.createCipheriv('aes-256-gcm', KUNCI, iv);
+  const data = Buffer.concat([c.update(JSON.stringify(obj), 'utf8'), c.final()]);
+  return 'THB1:' + Buffer.concat([iv, c.getAuthTag(), data]).toString('base64');
+}
+function dekripsi(s) {
+  const b = Buffer.from(s.slice(5), 'base64');
+  const d = crypto.createDecipheriv('aes-256-gcm', KUNCI, b.subarray(0, 12));
+  d.setAuthTag(b.subarray(12, 28));
+  return JSON.parse(Buffer.concat([d.update(b.subarray(28)), d.final()]).toString('utf8'));
+}
+
+// Env per akun: akun 1 memakai THREADS_X, akun n memakai THREADSn_X.
+// Bila kosong, beberapa kunci ikut akun 1 (app secret, mode, panjang, gaya, API base).
+const IKUT_AKUN1 = ['APP_SECRET', 'MODE', 'PANJANG', 'GAYA', 'API_BASE'];
+function envAkun(n, k) {
+  const v = n === 1 ? process.env[`THREADS_${k}`] : process.env[`THREADS${n}_${k}`];
+  if (v || n === 1 || !IKUT_AKUN1.includes(k)) return v || '';
+  return process.env[`THREADS_${k}`] || '';
+}
+const JADWAL_BAWAAN = { 1: '07:00,12:00,19:00', 2: '08:00,13:00,20:00' };
+
+// cfg: { n, banyak(), simpanCadangan(), cadangkan(), adaCadangan() } dari pengelola akun di bawah
+function buatAkun(deps, cfg) {
+  const { say: sayAsli, tg, llmText, searchWeb, wib, readJson, writeJson, dataDir, redact, owner } = deps;
+  const N = cfg.n;
+  const env = (k) => envAkun(N, k);
+  const BASE = (env('API_BASE') || 'https://graph.threads.net/v1.0').replace(/\/+$/, '');
   const ORIGIN = new URL(BASE).origin;
-  const USER = process.env.THREADS_USER_ID || 'me';
+  const USER = env('USER_ID') || 'me';
   const AKTIF = !process.env.THREADS_NONAKTIF; // dimatikan start.js untuk bot yang bukan bot Threads
-  const ENV_TOKEN = (process.env.THREADS_ACCESS_TOKEN || '').trim();
+  const ENV_TOKEN = env('ACCESS_TOKEN').trim();
   const TOKEN_TAG = ENV_TOKEN.slice(-10);
-  const APP_SECRET = (process.env.THREADS_APP_SECRET || '').trim();
-  const F = path.join(dataDir, 'threads.json');
+  const APP_SECRET = env('APP_SECRET').trim();
+  const F = path.join(dataDir, N === 1 ? 'threads.json' : `threads-${N}.json`);
+  const CB = N === 1 ? 'th:' : `th${N}:`; // awalan callback_data tombol
+  const PILAR = env('PILAR') ? env('PILAR').split(/\s*;\s*/).filter(Boolean) : PILAR_UMUM;
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const enc = encodeURIComponent;
+  const nama = () => `Akun ${N}${st.username ? ` @${st.username}` : ''}`;
+  const labelAkun = () => (cfg.banyak() ? `[${nama()}] ` : '');
+  const say = (chat, text) => sayAsli(chat, labelAkun() + text);
 
   const bawaan = () => ({
-    jadwal: rapikanJadwal(process.env.THREADS_JADWAL || '') || '07:00,12:00,19:00',
-    mode: (process.env.THREADS_MODE || '').toLowerCase() === 'setuju' ? 'setuju' : 'otomatis',
-    topik: process.env.THREADS_TOPIK || 'acak',
-    panjang: rapikanPanjang(process.env.THREADS_PANJANG) || '2-3',
-    gaya: process.env.THREADS_GAYA || GAYA_BAWAAN,
-    persona: process.env.THREADS_PERSONA || PERSONA_BAWAAN,
+    jadwal: rapikanJadwal(env('JADWAL')) || JADWAL_BAWAAN[N] || JADWAL_BAWAAN[1],
+    mode: env('MODE').toLowerCase() === 'setuju' ? 'setuju' : 'otomatis',
+    topik: env('TOPIK') || 'acak',
+    panjang: rapikanPanjang(env('PANJANG')) || '2-3',
+    gaya: env('GAYA') || GAYA_BAWAAN,
+    persona: env('PERSONA') || PERSONA_BAWAAN,
     jeda: false,
   });
   const s0 = readJson(F, {});
@@ -141,7 +174,7 @@ module.exports = function createThreads(deps) {
     token: s0.token || null,
     tokenCoba: s0.tokenCoba || 0,
     peringatan: s0.peringatan || '',
-    cadanganId: s0.cadanganId || 0,
+    username: s0.username || '',
   };
   st.set.panjang = rapikanPanjang(st.set.panjang) || bawaan().panjang;
   const simpan = () => writeJson(F, st);
@@ -167,74 +200,26 @@ module.exports = function createThreads(deps) {
       : m;
   };
 
-  // ---------- cadangan token terenkripsi (disematkan di chat Telegram) ----------
-  const KUNCI = crypto.createHash('sha256').update('threads-cadangan:' + (process.env.TELEGRAM_BOT_TOKEN || '')).digest();
-  function enkripsi(obj) {
-    const iv = crypto.randomBytes(12);
-    const c = crypto.createCipheriv('aes-256-gcm', KUNCI, iv);
-    const data = Buffer.concat([c.update(JSON.stringify(obj), 'utf8'), c.final()]);
-    return 'THB1:' + Buffer.concat([iv, c.getAuthTag(), data]).toString('base64');
-  }
-  function dekripsi(s) {
-    const b = Buffer.from(s.slice(5), 'base64');
-    const d = crypto.createDecipheriv('aes-256-gcm', KUNCI, b.subarray(0, 12));
-    d.setAuthTag(b.subarray(12, 28));
-    return JSON.parse(Buffer.concat([d.update(b.subarray(28)), d.final()]).toString('utf8'));
-  }
-  // isi cadangan: token dari bot + pengaturan yang diubah lewat Telegram (beda dari Environment)
+  // isi cadangan akun ini: token dari bot + pengaturan yang diubah lewat Telegram (beda dari Environment)
   function isiCadangan() {
     const b = bawaan();
     const ubah = {};
     for (const k of Object.keys(st.set)) if (st.set[k] !== b[k]) ubah[k] = st.set[k];
-    return { versi: 2, token: tokenBot(), ubah, topikNanti: st.topikNanti || '' };
+    return { token: tokenBot(), ubah, topikNanti: st.topikNanti || '', username: st.username || '' };
   }
-  let terakhirDicadangkan = '';
-  async function simpanCadangan() {
-    if (!owner) return;
-    const isi = isiCadangan();
-    if (!isi.token && !Object.keys(isi.ubah).length && !isi.topikNanti && !st.cadanganId) return;
-    let teks = `Cadangan token dan pengaturan Threads (terenkripsi). Jangan dihapus atau di-unpin; bot memakainya lagi setelah deploy ulang.\n${enkripsi(isi)}`;
-    if (teks.length > 4000) { // gaya/persona panjang: lewati agar muat satu pesan Telegram
-      delete isi.ubah.gaya; delete isi.ubah.persona;
-      teks = teks.slice(0, teks.indexOf('\n') + 1) + enkripsi(isi);
-    }
-    terakhirDicadangkan = JSON.stringify(isi);
-    if (st.cadanganId) { // perbarui pesan yang sudah di-pin, tanpa pesan baru
-      const e = await tg('editMessageText', { chat_id: owner, message_id: st.cadanganId, text: teks });
-      if (e?.ok || /not modified/i.test(e?.description || '')) return;
-    }
-    const r = await tg('sendMessage', { chat_id: owner, disable_notification: true, text: teks });
-    if (!r?.ok) return;
-    await tg('pinChatMessage', { chat_id: owner, message_id: r.result.message_id, disable_notification: true }).catch(() => {});
-    if (st.cadanganId && st.cadanganId !== r.result.message_id) {
-      tg('deleteMessage', { chat_id: owner, message_id: st.cadanganId }).catch(() => {});
-    }
-    st.cadanganId = r.result.message_id;
+  const cadanganKosong = (isi) => !isi.token && !Object.keys(isi.ubah).length && !isi.topikNanti;
+  function terapkanCadangan(isi) {
+    Object.assign(st.set, isi.ubah || {});
+    st.set.panjang = rapikanPanjang(st.set.panjang) || bawaan().panjang;
+    st.topikNanti = isi.topikNanti || '';
+    if (isi.username) st.username = isi.username;
+    const t = isi.token;
+    // token dipakai lagi hanya bila Environment belum diganti dan belum kedaluwarsa
+    if (t && t.dari === TOKEN_TAG && !(t.kedaluwarsa && t.kedaluwarsa < Date.now())) st.token = t;
     simpan();
   }
-  async function pulihkanCadangan() {
-    if (!owner || Object.keys(s0).length) return; // data/ masih ada: bukan deploy ulang
-    try {
-      const r = await tg('getChat', { chat_id: owner });
-      const pm = r?.result?.pinned_message;
-      const m = /THB1:[A-Za-z0-9+/=]+/.exec(pm?.text || '');
-      if (!m) return;
-      const c = dekripsi(m[0]);
-      const isi = c.versi === 2 ? c : { token: c, ubah: {} }; // cadangan lama hanya berisi token
-      st.cadanganId = pm.message_id;
-      Object.assign(st.set, isi.ubah || {});
-      st.set.panjang = rapikanPanjang(st.set.panjang) || bawaan().panjang;
-      st.topikNanti = isi.topikNanti || '';
-      const t = isi.token;
-      // token dipakai lagi hanya bila Environment belum diganti dan belum kedaluwarsa
-      if (t && t.dari === TOKEN_TAG && !(t.kedaluwarsa && t.kedaluwarsa < Date.now())) st.token = t;
-      terakhirDicadangkan = JSON.stringify(isiCadangan());
-      simpan();
-      console.log('Token dan pengaturan Threads dipulihkan dari cadangan Telegram.');
-    } catch (e) {
-      console.error('Gagal memulihkan cadangan token:', sensor(e.message));
-    }
-  }
+  const simpanCadangan = () => cfg.simpanCadangan();
+  const cadangkanJikaBerubah = () => cfg.cadangkan();
   // token pendek (1 jam) di Environment ditukar sekali menjadi token 60 hari saat bot start
   async function tukarTokenEnv() {
     if (!ENV_TOKEN || !APP_SECRET || tokenBot()) return;
@@ -250,11 +235,22 @@ module.exports = function createThreads(deps) {
       console.error('Token Threads tidak ditukar:', sensor(e.message));
     }
   }
-  async function cadangkanJikaBerubah() {
-    if (siap && JSON.stringify(isiCadangan()) !== terakhirDicadangkan) await simpanCadangan().catch(() => {});
+  // nama @username untuk label pesan; dicek ulang sehari sekali
+  let cekNama = 0;
+  async function ambilUsername() {
+    if (!adaToken() || Date.now() - cekNama < HARI) return;
+    cekNama = Date.now();
+    try {
+      const me = await th('GET', '/me', { fields: 'id,username' });
+      if (me.username && me.username !== st.username) { st.username = me.username; simpan(); }
+    } catch { /* label tanpa username */ }
   }
   let siap = false;
-  pulihkanCadangan().then(tukarTokenEnv).finally(() => { siap = true; });
+  async function mulai() {
+    await tukarTokenEnv();
+    await ambilUsername();
+    siap = true;
+  }
 
   // ---------- waktu ----------
   const keMenit = (hhmm) => {
@@ -378,6 +374,7 @@ module.exports = function createThreads(deps) {
     try {
       const me = await th('GET', '/me', { fields: 'id,username' }, value);
       nama = me.username ? `@${me.username}` : me.id;
+      if (me.username) st.username = me.username;
     } catch (e) {
       return say(chat, `Token ditolak oleh Threads: ${sensor(e.message)}\nPastikan tokennya lengkap dan izinnya threads_basic + threads_content_publish.`);
     }
@@ -423,7 +420,8 @@ module.exports = function createThreads(deps) {
     const n = parseInt(t, 10);
     if (t !== 'acak') return !Number.isNaN(n) && PILAR[n - 1] ? PILAR[n - 1] : t;
     const baru = st.riwayat.slice(-2).map((r) => r.topik);
-    const opsi = PILAR.filter((p) => !baru.includes(p));
+    const sisa = PILAR.filter((p) => !baru.includes(p));
+    const opsi = sisa.length ? sisa : PILAR;
     return opsi[Math.floor(Math.random() * opsi.length)];
   }
 
@@ -549,11 +547,11 @@ Balas HANYA dengan JSON: {"hook":"baris pertama","tag":"AI Threads","bagian":["t
     const n = draf.bagian.length;
     const isi = n > 1 ? draf.bagian.map((b, i) => `[${i + 1}/${n}]\n${b}`).join('\n\n') : draf.bagian[0];
     const r = st.riwayat.at(-1);
-    const tombol = r?.ids?.length ? { inline_keyboard: [[{ text: '🗑 Hapus dari Threads', callback_data: `th:del:${r.ids[0]}` }]] } : undefined;
+    const tombol = r?.ids?.length ? { inline_keyboard: [[{ text: '🗑 Hapus dari Threads', callback_data: `${CB}del:${r.ids[0]}` }]] } : undefined;
     const teks = `${awalan} (${draf.topik}${n > 1 ? `, ${n} utas` : ''}):${draf.tag ? `\nTopik Threads: ${draf.tag}` : ''}${link ? `\n${link}` : ''}\n\n${isi}`;
-    if (teks.length <= 4000) return tg('sendMessage', { chat_id: chat, text: teks, ...(tombol ? { reply_markup: tombol } : {}) });
+    if (teks.length <= 4000) return tg('sendMessage', { chat_id: chat, text: labelAkun() + teks, ...(tombol ? { reply_markup: tombol } : {}) });
     await say(chat, teks);
-    if (tombol) await tg('sendMessage', { chat_id: chat, text: 'Postingan di atas:', reply_markup: tombol });
+    if (tombol) await tg('sendMessage', { chat_id: chat, text: labelAkun() + 'Postingan di atas:', reply_markup: tombol });
   }
   async function hapusPostingan(chat, idPertama) {
     const r = st.riwayat.find((x) => x.ids?.[0] === idPertama);
@@ -570,12 +568,12 @@ Balas HANYA dengan JSON: {"hook":"baris pertama","tag":"AI Threads","bagian":["t
     const isi = n > 1 ? draf.bagian.map((b, i) => `[${i + 1}/${n}]\n${b}`).join('\n\n') : draf.bagian[0];
     const judul = `${awalan}Draf Threads (${draf.topik})${n > 1 ? `, ${n} utas` : ''}:${draf.tag ? `\nTopik Threads: ${draf.tag}` : ''}\n\n`;
     const tombol = { inline_keyboard: [
-      [{ text: 'Posting sekarang', callback_data: 'th:post' }, { text: `Jadwalkan ${draf.slot || slotBerikutnya()}`, callback_data: 'th:sched' }],
-      [{ text: 'Tulis ulang', callback_data: 'th:redo' }, { text: 'Lewati', callback_data: 'th:skip' }],
+      [{ text: 'Posting sekarang', callback_data: `${CB}post` }, { text: `Jadwalkan ${draf.slot || slotBerikutnya()}`, callback_data: `${CB}sched` }],
+      [{ text: 'Tulis ulang', callback_data: `${CB}redo` }, { text: 'Lewati', callback_data: `${CB}skip` }],
     ] };
-    if ((judul + isi).length <= 4000) return tg('sendMessage', { chat_id: chat, text: judul + isi, reply_markup: tombol });
+    if ((judul + isi).length <= 4000) return tg('sendMessage', { chat_id: chat, text: labelAkun() + judul + isi, reply_markup: tombol });
     await say(chat, judul + isi);
-    await tg('sendMessage', { chat_id: chat, text: `Draf di atas (${n} utas) mau diapakan?`, reply_markup: tombol });
+    await tg('sendMessage', { chat_id: chat, text: labelAkun() + `Draf di atas (${n} utas) mau diapakan?`, reply_markup: tombol });
   }
 
 
@@ -694,7 +692,7 @@ Perintah:
       } catch (e) { baris.push(`❌ Kuota posting: ${sensor(e.message).slice(0, 120)}`); }
     }
     baris.push(`ℹ️ Jadwal ${daftarJadwal().join(', ')} WIB, mode ${st.set.mode}${st.set.jeda ? ' (DIJEDA)' : ''}, terakhir posting ${st.terakhirPosting || '-'}`);
-    baris.push(st.cadanganId ? '✅ Cadangan token/pengaturan ter-pin di chat' : 'ℹ️ Belum ada cadangan ter-pin (dibuat otomatis saat ada token/pengaturan dari Telegram)');
+    baris.push(cfg.adaCadangan() ? '✅ Cadangan token/pengaturan ter-pin di chat' : 'ℹ️ Belum ada cadangan ter-pin (dibuat otomatis saat ada token/pengaturan dari Telegram)');
     let draf = null;
     if (lengkap) {
       const t0 = Date.now();
@@ -709,8 +707,8 @@ Perintah:
   async function handleCallback(cq) {
     const chat = String(cq.message?.chat?.id || '');
     tg('answerCallbackQuery', { callback_query_id: cq.id }).catch(() => {});
-    if (!owner || chat !== owner || !String(cq.data || '').startsWith('th:')) return;
-    const aksi = cq.data.slice(3);
+    if (!owner || chat !== owner || !String(cq.data || '').startsWith(CB)) return;
+    const aksi = cq.data.slice(CB.length);
     if (aksi.startsWith('del:')) {
       try { await hapusPostingan(chat, aksi.slice(4)); } catch (e) { await say(chat, `Gagal menghapus: ${pesanGagal(e)}`); }
       return;
@@ -745,6 +743,8 @@ Perintah:
   // ---------- jadwal (dipanggil tiap menit) ----------
   async function tick() {
     if (!AKTIF || !owner || !siap) return;
+    if (N > 1 && !adaToken()) return; // akun tambahan belum dipasang
+    await ambilUsername();
     await cadangkanJikaBerubah();
     await perbaruiToken().catch(() => {});
     await cekMasaToken().catch(() => {});
@@ -793,5 +793,150 @@ Perintah:
     });
   }
 
-  return { handleCommand, handleCallback, tick, tes, aktif: AKTIF };
+  return {
+    n: N, CB, nama, handleCommand, handleCallback, tick, tes, mulai, isiCadangan, terapkanCadangan, cadanganKosong, adaToken, aktif: AKTIF,
+    cadanganLama: s0.cadanganId || 0,
+  };
+}
+
+// ---------- pengelola akun: /akun, cadangan bersama, jadwal semua akun ----------
+// Akun 2 selalu tersedia (aktif setelah ada token); akun 3-5 bila ada variabel THREADSn_*.
+module.exports = function createThreads(deps) {
+  const { say, tg, readJson, writeJson, dataDir, owner } = deps;
+  const nomor = [1, 2, ...[3, 4, 5].filter((n) => Object.keys(process.env).some((k) => k.startsWith(`THREADS${n}_`)))];
+  const FM = path.join(dataDir, 'threads-akun.json');
+  const m0 = readJson(FM, {});
+  const baru = !Object.keys(m0).length && !Object.keys(readJson(path.join(dataDir, 'threads.json'), {})).length;
+  const mst = { aktif: m0.aktif || 1, cadanganId: m0.cadanganId || 0 };
+  const simpanM = () => writeJson(FM, mst);
+  let siap = false, terakhirDicadangkan = '';
+
+  const cfg = (n) => ({
+    n,
+    banyak: () => akun.filter((a) => a.adaToken()).length > 1 || mst.aktif !== 1,
+    simpanCadangan: () => simpanCadangan().catch(() => {}),
+    cadangkan: () => cadangkanJikaBerubah(),
+    adaCadangan: () => Boolean(mst.cadanganId),
+  });
+  const akun = nomor.map((n) => buatAkun(deps, cfg(n)));
+  const cari = (n) => akun.find((a) => a.n === +n);
+  if (!cari(mst.aktif)) mst.aktif = 1;
+  if (!mst.cadanganId && akun[0].cadanganLama) mst.cadanganId = akun[0].cadanganLama; // dari versi satu akun
+  const aktif = () => cari(mst.aktif);
+
+  function isiCadangan() {
+    const isi = { versi: 3, aktif: mst.aktif, akun: {} };
+    for (const a of akun) { const c = a.isiCadangan(); if (!a.cadanganKosong(c) || c.username) isi.akun[a.n] = c; }
+    return isi;
+  }
+  async function simpanCadangan() {
+    if (!owner) return;
+    const isi = isiCadangan();
+    const kosong = Object.values(isi.akun).every((c) => !c.token && !Object.keys(c.ubah).length && !c.topikNanti);
+    if (kosong && mst.aktif === 1 && !mst.cadanganId) return;
+    const kepala = 'Cadangan token dan pengaturan Threads (terenkripsi). Jangan dihapus atau di-unpin; bot memakainya lagi setelah deploy ulang.\n';
+    let teks = kepala + enkripsi(isi);
+    if (teks.length > 4000) { // gaya/persona panjang: lewati agar muat satu pesan Telegram
+      for (const c of Object.values(isi.akun)) { delete c.ubah.gaya; delete c.ubah.persona; }
+      teks = kepala + enkripsi(isi);
+    }
+    terakhirDicadangkan = JSON.stringify(isiCadangan());
+    if (mst.cadanganId) { // perbarui pesan yang sudah di-pin, tanpa pesan baru
+      const e = await tg('editMessageText', { chat_id: owner, message_id: mst.cadanganId, text: teks });
+      if (e?.ok || /not modified/i.test(e?.description || '')) return;
+    }
+    const r = await tg('sendMessage', { chat_id: owner, disable_notification: true, text: teks });
+    if (!r?.ok) return;
+    await tg('pinChatMessage', { chat_id: owner, message_id: r.result.message_id, disable_notification: true }).catch(() => {});
+    if (mst.cadanganId && mst.cadanganId !== r.result.message_id) {
+      tg('deleteMessage', { chat_id: owner, message_id: mst.cadanganId }).catch(() => {});
+    }
+    mst.cadanganId = r.result.message_id;
+    simpanM();
+  }
+  async function cadangkanJikaBerubah() {
+    if (siap && JSON.stringify(isiCadangan()) !== terakhirDicadangkan) await simpanCadangan().catch(() => {});
+  }
+  async function pulihkanCadangan() {
+    if (!owner || !baru) return; // data/ masih ada: bukan deploy ulang
+    try {
+      const r = await tg('getChat', { chat_id: owner });
+      const pm = r?.result?.pinned_message;
+      const m = /THB1:[A-Za-z0-9+/=]+/.exec(pm?.text || '');
+      if (!m) return;
+      const c = dekripsi(m[0]);
+      mst.cadanganId = pm.message_id;
+      if (c.versi === 3) {
+        for (const [n, isi] of Object.entries(c.akun || {})) cari(n)?.terapkanCadangan(isi);
+        if (cari(c.aktif)) mst.aktif = +c.aktif;
+      } else akun[0].terapkanCadangan(c.versi === 2 ? c : { token: c, ubah: {} }); // cadangan versi satu akun
+      simpanM();
+      console.log('Token dan pengaturan Threads dipulihkan dari cadangan Telegram.');
+    } catch (e) {
+      console.error('Gagal memulihkan cadangan token:', String(e.message).slice(0, 200));
+    }
+  }
+  pulihkanCadangan()
+    .then(() => Promise.all(akun.map((a) => a.mulai().catch(() => {}))))
+    .finally(() => { terakhirDicadangkan = JSON.stringify(isiCadangan()); siap = true; });
+
+  function tombolAkun() {
+    return { inline_keyboard: [akun.map((a) => ({ text: `${a.n === mst.aktif ? '✅ ' : ''}${a.nama()}`, callback_data: `akun:${a.n}` }))] };
+  }
+  async function pilihAkun(chat, n) {
+    const a = cari(n);
+    if (!a) return say(chat, `Akun ${n} tidak ada. Pilihan: ${akun.map((x) => x.n).join(', ')}.`);
+    mst.aktif = a.n; simpanM();
+    await say(chat, `Akun aktif: ${a.nama()}.${a.adaToken() ? '' : '\nToken akun ini belum ada. Kirim /token TOKEN_AKUN_INI (sekarang, selagi akun ini aktif).'}\nSemua perintah Threads (/threads, /dadakan, /buat, /jadwal, /persona, /token, ...) dan Mode Threads sekarang berlaku untuk akun ini. Posting terjadwal tetap jalan untuk semua akun.`);
+    await cadangkanJikaBerubah();
+  }
+
+  async function handleCommand(chat, text, msgId) {
+    const [c, ...rest] = text.split(/\s+/);
+    const cmd = c.toLowerCase().split('@')[0];
+    const arg = rest.join(' ').trim();
+    if (cmd === '/akun') {
+      if (!akun[0].aktif) { await say(chat, 'Fitur Threads tidak aktif di bot ini.'); return true; }
+      if (arg) await pilihAkun(chat, parseInt(arg, 10));
+      else {
+        const daftar = akun.map((a) => `${a.n === mst.aktif ? '✅' : '▫️'} ${a.nama()}${a.adaToken() ? '' : ' (token belum ada)'}`).join('\n');
+        await tg('sendMessage', { chat_id: chat, text: `Akun Threads:\n${daftar}\n\nPilih akun yang mau diatur (atau ketik /akun 2):`, reply_markup: tombolAkun() });
+      }
+      return true;
+    }
+    const ok = await aktif().handleCommand(chat, text, msgId);
+    if (ok && cmd === '/threads' && akun[0].aktif) await tg('sendMessage', { chat_id: chat, text: `Sedang mengatur ${aktif().nama()}. Ganti akun:`, reply_markup: tombolAkun() });
+    return ok;
+  }
+
+  async function handleCallback(cq) {
+    const data = String(cq.data || '');
+    const chat = String(cq.message?.chat?.id || '');
+    if (data.startsWith('akun:')) {
+      tg('answerCallbackQuery', { callback_query_id: cq.id }).catch(() => {});
+      if (owner && chat === owner) await pilihAkun(chat, parseInt(data.slice(5), 10));
+      return;
+    }
+    const a = akun.find((x) => data.startsWith(x.CB)) || akun[0];
+    return a.handleCallback(cq);
+  }
+
+  async function tick() {
+    if (!siap) return;
+    for (const a of akun) await a.tick().catch((e) => console.error(`threads tick akun ${a.n}:`, e.message));
+  }
+
+  async function tes(lengkap) {
+    const baris = [];
+    let draf = null;
+    for (const a of akun) {
+      if (a.n !== 1 && !a.adaToken()) { baris.push(`➖ ${a.nama()}: token belum ada`); continue; }
+      const r = await a.tes(lengkap && a.n === mst.aktif);
+      baris.push(...(akun.length > 1 ? r.baris.map((b) => `${b} [${a.nama()}]`) : r.baris));
+      draf = draf || r.draf;
+    }
+    return { baris, draf };
+  }
+
+  return { handleCommand, handleCallback, tick, tes, aktif: akun[0].aktif };
 };

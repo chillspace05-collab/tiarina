@@ -1,7 +1,7 @@
 // Menjalankan satu atau dua bot dari satu aplikasi (satu Environment).
 // Bot 1 memakai variabel biasa. Bot 2 aktif bila BOT2_TELEGRAM_BOT_TOKEN diisi; variabel lain untuk
 // bot 2 ditulis dengan awalan BOT2_ (mis. BOT2_OWNER_CHAT_ID), selebihnya ikut variabel bot 1.
-// Fitur Threads (THREADS_*) hanya dijalankan satu bot agar tidak posting dobel:
+// Fitur Threads (THREADS_*, THREADS2_* untuk akun Threads kedua) hanya dijalankan satu bot agar tidak posting dobel:
 // THREADS_BOT=1 atau 2 (bawaan: 2 bila bot 2 ada, selain itu 1).
 const { spawn } = require('child_process');
 const path = require('path');
@@ -21,7 +21,7 @@ function envBot(n) {
     e.PORT = String(port + 1);
   }
   if (String(n) !== threadsBot) {
-    for (const k of Object.keys(e)) if (k.startsWith('THREADS_')) delete e[k];
+    for (const k of Object.keys(e)) if (/^THREADS\d*_/.test(k)) delete e[k];
     e.THREADS_NONAKTIF = '1';
   }
   return e;
