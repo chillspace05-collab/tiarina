@@ -6,8 +6,8 @@ const crypto = require('crypto');
 
 const PILAR = [
   'kehidupan sehari-hari yang relatable',
-  'kesehatan mental dari sudut pandang pegawai ASN',
-  'dunia kerja ASN yang ringan dan non-sensitif',
+  'kesehatan mental sehari-hari',
+  'dunia kerja kantoran yang ringan dan non-sensitif',
   'gym dan latihan beban',
   'info kesehatan ringan',
   'AI dan teknologi yang sedang tren',
@@ -24,7 +24,7 @@ Bahasa utama tetap Indonesia umum; selipan Jawa tidak boleh membuat kalimat suli
 Dilarang memakai umpatan atau plesetan umpatan.`;
 
 const PERSONA_BAWAAN =
-  'Seorang pegawai ASN yang tinggal di Solo, rutin gym, melek teknologi, dan senang memperhatikan hal-hal kecil dalam keseharian.';
+  'Seorang pekerja kantoran (ASN, tapi jarang disebut) yang tinggal di Solo, rutin gym, melek teknologi, dan senang memperhatikan hal-hal kecil dalam keseharian.';
 
 // frasa dan kata yang terlalu sering muncul di tulisan AI; dicek otomatis setelah draf jadi
 const KLISE = [
@@ -47,7 +47,7 @@ const ATURAN = `Aturan menulis agar terasa ditulis manusia, bukan AI:
   "Hasilnya?" / "Jawabannya:" sebelum pengungkapan, dan pesan moral atau kesimpulan di akhir.
 - Tidak perlu selalu ada pelajaran. Boleh berhenti di cerita, di kalimat yang menggantung, atau di punchline. Pertanyaan ke pembaca sesekali saja, jangan tiap postingan.
 - Bahas satu topik saja dengan bahasa umum dan apa adanya. Jangan menyambungkan atau membandingkan dengan dunia lain dari persona
-  (gym, kerja ASN, AI/teknologi) lewat perumpamaan atau istilah, misalnya "angkat barbel seperti beban kerja", "otak perlu di-upgrade seperti software", "kerjaan seperti set dan repetisi".
+  (gym, kerja kantor, AI/teknologi) lewat perumpamaan atau istilah, misalnya "angkat barbel seperti beban kerja", "otak perlu di-upgrade seperti software", "kerjaan seperti set dan repetisi".
   Hindari majas dan perumpamaan yang dipaksakan; tulis yang dimaksud secara langsung.
 - Tanpa hashtag. Emoji paling banyak satu, lebih sering tidak ada. Tanpa daftar bernomor atau poin, tanpa huruf tebal, tanpa tanda pisah panjang (—).
 - Jangan memakai kata/frasa ini: ${KLISE.map((k) => `"${k}"`).join(', ')}.
@@ -83,8 +83,8 @@ function rapikanJadwal(teks) {
 // topik Threads (topic_tag) bawaan per pilar; dipakai bila model tidak memberi topik yang valid
 const TAG_PILAR = {
   'kehidupan sehari-hari yang relatable': 'Daily Life Threads',
-  'kesehatan mental dari sudut pandang pegawai ASN': 'Mental Health Threads',
-  'dunia kerja ASN yang ringan dan non-sensitif': 'Work Life Threads',
+  'kesehatan mental sehari-hari': 'Mental Health Threads',
+  'dunia kerja kantoran yang ringan dan non-sensitif': 'Work Life Threads',
   'gym dan latihan beban': 'Gym Threads',
   'info kesehatan ringan': 'Health Threads',
   'AI dan teknologi yang sedang tren': 'AI Threads',
@@ -447,6 +447,7 @@ module.exports = function createThreads(deps) {
     }
     const hindari = st.riwayat.slice(-10).map((r) => `- ${r.hook}`).join('\n') || '- (belum ada)';
     const nada = NADA[Math.floor(Math.random() * NADA.length)];
+    const asn = Math.random() < 0.15 ? 'Boleh menyebut bahwa penulis ASN bila memang relevan.' : 'Jangan menyebut ASN, PNS, atau instansi; cukup "kerja" atau "kantor" bila perlu.';
     const solo = Math.random() < 0.35 ? 'Boleh satu selipan rasa Solo bila pas, jangan dipaksakan.' : 'Kali ini tanpa selipan bahasa Jawa.';
     const system = `Kamu menulis postingan Threads untuk akun pribadi.
 Persona penulis: ${st.set.persona}
@@ -455,7 +456,7 @@ ${st.set.gaya}
 
 ${ATURAN}`;
     const user = `Topik: ${topik}
-Nada kali ini: ${nada}. ${solo} Fokus hanya pada topik ini, jangan dicampur istilah atau perumpamaan dari topik lain.
+Nada kali ini: ${nada}. ${solo} ${asn} Fokus hanya pada topik ini, jangan dicampur istilah atau perumpamaan dari topik lain.
 Jumlah bagian: tepat ${panjang} (setiap bagian maksimal 480 karakter; jika lebih dari satu, ini utas: bagian 1 membuat orang ingin membuka balasannya, tiap bagian berikutnya melanjutkan dari bagian sebelumnya sebagai satu alur, bagian terakhir tidak perlu kesimpulan).
 Hook yang sudah pernah dipakai, jangan diulang atau dibuat mirip:
 ${hindari}${konteks}
