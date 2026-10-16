@@ -95,6 +95,14 @@ function rapikanTag(t) {
   return s.length && s.length <= 50 ? s : '';
 }
 const MAKS_UTAS = 8; // bagian per postingan: 1 postingan utama + balasan berantai
+// panjang: "3" (tetap) atau "2-3" (acak per postingan); null bila format salah
+function rapikanPanjang(x) {
+  const m = /^\s*([1-8])\s*(?:-\s*([1-8]))?\s*$/.exec(String(x ?? ''));
+  if (!m) return null;
+  const a = +m[1], b = m[2] ? +m[2] : a;
+  if (b < a) return null;
+  return a === b ? String(a) : `${a}-${b}`;
+}
 
 module.exports = function createThreads(deps) {
   const { say, tg, llmText, searchWeb, wib, readJson, writeJson, dataDir, redact, owner } = deps;
@@ -113,7 +121,7 @@ module.exports = function createThreads(deps) {
     jadwal: rapikanJadwal(process.env.THREADS_JADWAL || '') || '07:00,12:00,19:00',
     mode: (process.env.THREADS_MODE || '').toLowerCase() === 'setuju' ? 'setuju' : 'otomatis',
     topik: process.env.THREADS_TOPIK || 'acak',
-    panjang: Math.min(MAKS_UTAS, Math.max(1, parseInt(process.env.THREADS_PANJANG || '1', 10) || 1)),
+    panjang: rapikanPanjang(process.env.THREADS_PANJANG) || '2-3',
     gaya: process.env.THREADS_GAYA || GAYA_BAWAAN,
     persona: process.env.THREADS_PERSONA || PERSONA_BAWAAN,
     jeda: false,
@@ -135,7 +143,12 @@ module.exports = function createThreads(deps) {
     peringatan: s0.peringatan || '',
     cadanganId: s0.cadanganId || 0,
   };
+  st.set.panjang = rapikanPanjang(st.set.panjang) || bawaan().panjang;
   const simpan = () => writeJson(F, st);
+  function pilihPanjang() {
+    const [a, b = a] = String(st.set.panjang).split('-').map(Number);
+    return a + Math.floor(Math.random() * (b - a + 1));
+  }
 
   // Token yang dipakai: token dari bot (/token atau hasil perpanjangan) selama Environment belum diganti.
   const tokenBot = () => (st.token?.value && st.token.dari === TOKEN_TAG ? st.token : null);
@@ -210,6 +223,7 @@ module.exports = function createThreads(deps) {
       const isi = c.versi === 2 ? c : { token: c, ubah: {} }; // cadangan lama hanya berisi token
       st.cadanganId = pm.message_id;
       Object.assign(st.set, isi.ubah || {});
+      st.set.panjang = rapikanPanjang(st.set.panjang) || bawaan().panjang;
       st.topikNanti = isi.topikNanti || '';
       const t = isi.token;
       // token dipakai lagi hanya bila Environment belum diganti dan belum kedaluwarsa
@@ -437,7 +451,7 @@ module.exports = function createThreads(deps) {
 
   async function tulis(topikPaksa, utas) {
     const topik = pilihTopik(topikPaksa);
-    const panjang = utas || st.set.panjang;
+    const panjang = utas || pilihPanjang();
     let konteks = '';
     if (/AI|teknologi|tech/i.test(topik)) {
       try {
@@ -457,7 +471,12 @@ ${st.set.gaya}
 ${ATURAN}`;
     const user = `Topik: ${topik}
 Nada kali ini: ${nada}. ${solo} ${asn} Fokus hanya pada topik ini, jangan dicampur istilah atau perumpamaan dari topik lain.
-Jumlah bagian: tepat ${panjang} (setiap bagian maksimal 480 karakter; jika lebih dari satu, ini utas: bagian 1 membuat orang ingin membuka balasannya, tiap bagian berikutnya melanjutkan dari bagian sebelumnya sebagai satu alur, bagian terakhir tidak perlu kesimpulan).
+Jumlah bagian: tepat ${panjang} (setiap bagian maksimal 480 karakter).${panjang > 1 ? `
+Ini utas bercerita: isi "bagian" dengan TEPAT ${panjang} elemen; elemen pertama jadi postingan utama, sisanya diposting sebagai balasan bersambung.
+Bagian 1 membuka cerita dengan situasi konkret dan membuat orang ingin membuka balasannya (jangan ditutup di bagian 1).
+Bagian tengah melanjutkan kejadiannya: detail, percakapan pendek, atau perubahan yang terjadi. Setiap bagian lanjut dari bagian sebelumnya, tidak mengulang.
+Bagian terakhir menutup cerita dengan wajar (kejadian akhir, kalimat menggantung, atau punchline), bukan ceramah atau kesimpulan.
+Jangan beri nomor seperti "1/3" atau "(bersambung)".` : ''}
 Hook yang sudah pernah dipakai, jangan diulang atau dibuat mirip:
 ${hindari}${konteks}
 
@@ -474,6 +493,13 @@ Balas HANYA dengan JSON: {"hook":"baris pertama","tag":"AI Threads","bagian":["t
         const b2 = (Array.isArray(j2.bagian) ? j2.bagian : []).map(rapikan).filter(Boolean);
         if (b2.length && cariKlise(b2.join('\n')).length < kena.length) { j = j2; bagian = b2; }
       } catch { /* pakai draf pertama */ }
+    }
+    if (panjang > 1 && bagian.length > 0 && bagian.length < panjang) { // model memberi bagian kurang: minta dipecah sekali
+      try {
+        const j3 = bacaJson(await llmText(system, `${user}\n\nDraf sebelumnya:\n${JSON.stringify({ hook: j.hook, bagian })}\n\nDraf itu baru ${bagian.length} bagian. Kembangkan menjadi cerita bersambung TEPAT ${panjang} bagian (array "bagian" berisi ${panjang} elemen). Balas HANYA dengan JSON yang sama formatnya.`));
+        const b3 = (Array.isArray(j3.bagian) ? j3.bagian : []).map(rapikan).filter(Boolean);
+        if (b3.length > bagian.length) { j = { ...j3, tag: j3.tag || j.tag }; bagian = b3; }
+      } catch { /* pakai draf yang ada */ }
     }
     bagian = bagian.flatMap(potong).slice(0, MAKS_UTAS);
     if (!bagian.length) throw new Error('Draf kosong. Coba /buat lagi.');
@@ -580,7 +606,7 @@ Perintah:
 /nanti topik - titip topik untuk posting terjadwal berikutnya (/nanti batal)
 /buat - draf dulu (tidak langsung posting), /posting, /jadwal 07:00,12:00,19:00
 /mode otomatis (langsung posting, preview dikirim ke sini) | setuju (draf disetujui dulu)
-/topik acak|nomor|teks, /panjang 1-8, /gaya teks|reset, /persona teks|reset
+/topik acak|nomor|teks, /panjang 3 atau 2-3 (acak), /gaya teks|reset, /persona teks|reset
 /jeda, /lanjut, /token TOKEN_BARU`;
   }
 
@@ -611,9 +637,9 @@ Perintah:
       else if (arg === 'batal') { st.topikNanti = ''; simpan(); await say(chat, 'Topik titipan dibatalkan.'); }
       else { st.topikNanti = arg; simpan(); await say(chat, `Oke, posting terjadwal berikutnya (${slotBerikutnya()} WIB) akan membahas: ${arg}. Setelah itu kembali ke topik biasa.`); }
     } else if (cmd === '/panjang') {
-      const n = parseInt(arg, 10);
-      if (!(n >= 1 && n <= MAKS_UTAS)) await say(chat, `Isi 1 sampai ${MAKS_UTAS}. Contoh: /panjang 3 (1 postingan + 2 balasan bersambung)`);
-      else { st.set.panjang = n; simpan(); await say(chat, `Setiap postingan: ${n} bagian.`); }
+      const n = rapikanPanjang(arg);
+      if (!n) await say(chat, `Panjang sekarang: ${st.set.panjang} bagian.\nIsi 1 sampai ${MAKS_UTAS}, atau rentang. Contoh: /panjang 3 (1 postingan + 2 balasan bersambung), /panjang 2-3 (acak 2 atau 3 tiap postingan)`);
+      else { st.set.panjang = n; simpan(); await say(chat, `Setiap postingan: ${n} bagian${n.includes('-') ? ' (acak tiap postingan)' : ''}.`); }
     } else if (cmd === '/gaya' || cmd === '/persona') {
       const key = cmd.slice(1);
       if (!arg) await say(chat, `${key} sekarang:\n${st.set[key]}`);
