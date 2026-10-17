@@ -150,6 +150,10 @@ async function gemini(model, body) {
 }
 
 const TRANSIENT = /(Gemini|LLM) (429|500|502|503|504|gagal)/;
+// penyedia tidak bisa dipakai dari server ini (lokasi diblokir, kunci salah/ditolak): langsung pindah penyedia, lewati lebih lama
+const UNUSABLE = /location is not supported|FAILED_PRECONDITION|PERMISSION_DENIED|API_KEY_INVALID|API key not valid|(Gemini|LLM) (401|403)\b/;
+const UNUSABLE_MS = 6 * 60 * 60 * 1000;
+const tandaiGagal = (p, e) => { downUntil[p] = Date.now() + (UNUSABLE.test(e.message) ? UNUSABLE_MS : DOWN_MS); };
 async function geminiAny(models, body) {
   let lastErr;
   for (const m of models) {
@@ -483,8 +487,8 @@ async function runAgent(chat, text) {
       return p === order[0] ? r : `(${order[0]} sedang sibuk, dijawab ${p})\n\n${r}`;
     } catch (e) {
       lastErr = e;
-      if (!TRANSIENT.test(e.message)) throw e;
-      downUntil[p] = Date.now() + DOWN_MS;
+      if (!TRANSIENT.test(e.message) && !UNUSABLE.test(e.message)) throw e;
+      tandaiGagal(p, e);
       console.error(`${p} gagal semua, coba penyedia lain: ${redact(e.message).slice(0, 100)}`);
     }
   }
@@ -516,8 +520,9 @@ async function llmText(system, user) {
       });
     } catch (e) {
       lastErr = e;
-      if (!TRANSIENT.test(e.message)) throw e;
-      downUntil[p] = Date.now() + DOWN_MS;
+      if (!TRANSIENT.test(e.message) && !UNUSABLE.test(e.message)) throw e;
+      tandaiGagal(p, e);
+      console.error(`${p} gagal, coba penyedia lain: ${redact(e.message).slice(0, 100)}`);
     }
   }
   throw lastErr || new Error('Tidak ada model yang diatur.');
