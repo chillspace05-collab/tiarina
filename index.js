@@ -614,7 +614,8 @@ async function tesRun(chat, lengkap) {
 const F_MODE = path.join(DATA_DIR, 'mode.json');
 const TOMBOL_ASISTEN = '🤖 Mode Asisten';
 const TOMBOL_THREADS = '🧵 Mode Threads';
-const KEYBOARD = { keyboard: [[{ text: TOMBOL_ASISTEN }, { text: TOMBOL_THREADS }]], resize_keyboard: true, is_persistent: true };
+const TOMBOL_ANALISIS = '📈 Analisis Threads';
+const KEYBOARD = { keyboard: [[{ text: TOMBOL_ASISTEN }, { text: TOMBOL_THREADS }], [{ text: TOMBOL_ANALISIS }]], resize_keyboard: true, is_persistent: true };
 const modeChat = (chat) => readJson(F_MODE, {})[chat] || 'asisten';
 function setMode(chat, mode) {
   const semua = readJson(F_MODE, {});
@@ -626,8 +627,9 @@ const sayTombol = (chat, text) => tg('sendMessage', { chat_id: chat, text, reply
 // ---------- pesan masuk ----------
 async function handle(msg) {
   const chat = String(msg.chat.id);
-  const text = (msg.text || '').trim();
+  let text = (msg.text || '').trim();
   if (!text) return;
+  if (text === TOMBOL_ANALISIS) text = '/analisis';
   console.log(`pesan dari ${chat}${OWNER && chat !== OWNER ? ' (diabaikan: bukan pemilik)' : ''}: ${text.slice(0, 40)}`);
 
   if (text.startsWith('/start') && !OWNER) {
@@ -641,12 +643,12 @@ async function handle(msg) {
   if (text === TOMBOL_THREADS || /^\/modethreads(@\S+)?$/i.test(text)) {
     if (!threads.aktif) return say(chat, 'Fitur Threads tidak aktif di bot ini.');
     setMode(chat, 'threads');
-    return sayTombol(chat, 'Mode Threads aktif. Kirim topik apa saja, nanti kubuatkan drafnya. Mau utas bersambung? Awali dengan jumlahnya, misalnya: 5 utas pengalaman pertama jadi ASN (2-8 utas). Di mode otomatis langsung diposting lalu preview-nya dikirim ke sini (ada tombol hapus). Di mode setuju dikirim sebagai draf dulu.\n\n/threads - status dan pengaturan (jadwal, mode setuju/otomatis, topik)\n/posting - posting draf terakhir\n/akun - pilih akun Threads yang diatur');
+    return sayTombol(chat, 'Mode Threads aktif. Kirim topik apa saja, nanti kubuatkan drafnya. Mau utas bersambung? Awali dengan jumlahnya, misalnya: 5 utas pengalaman pertama jadi ASN (2-8 utas). Di mode otomatis langsung diposting lalu preview-nya dikirim ke sini (ada tombol hapus). Di mode setuju dikirim sebagai draf dulu.\n\n/threads - status dan pengaturan (jadwal, mode setuju/otomatis, topik)\n/posting - posting draf terakhir\n/akun - pilih akun Threads yang diatur\n/analisis - analisis views, capaian, penyebab dan saran (bisa diterapkan)');
   }
   if (await threads.handleCommand(chat, text, msg.message_id)) return;
 
   if (text.startsWith('/start') || text.startsWith('/bantuan')) {
-    return sayTombol(chat, 'Aku agent-mu. Contoh perintah:\n- "cari berita terbaru tentang ..."\n- "buatkan paket Shorts tentang fakta unik ..."\n- "gambar kucing astronaut gaya kartun"\n- "catat: beli domain"\n- "ingatkan aku 30 menit lagi untuk upload"\n\n/reset - hapus riwayat percakapan\n/model - lihat atau ganti model (gemini / tiarina / tokenomix)\n/status - cek kondisi model\n/threads - posting harian ke Threads (status dan pengaturan)\n/dadakan topik - draf Threads topik dadakan\n/token TOKEN - perbarui token Threads\n/akun - pilih akun Threads (bila lebih dari satu)\n\nTombol di bawah: Mode Asisten (pesan dijawab agent) atau Mode Threads (pesan jadi draf Threads).\n/tes - tes run model, alat, dan Threads (tanpa posting)\n/tes lengkap - plus cari web, gambar, dan contoh draf');
+    return sayTombol(chat, 'Aku agent-mu. Contoh perintah:\n- "cari berita terbaru tentang ..."\n- "buatkan paket Shorts tentang fakta unik ..."\n- "gambar kucing astronaut gaya kartun"\n- "catat: beli domain"\n- "ingatkan aku 30 menit lagi untuk upload"\n\n/reset - hapus riwayat percakapan\n/model - lihat atau ganti model (gemini / tiarina / tokenomix)\n/status - cek kondisi model\n/threads - posting harian ke Threads (status dan pengaturan)\n/dadakan topik - draf Threads topik dadakan\n/token TOKEN - perbarui token Threads\n/akun - pilih akun Threads (bila lebih dari satu)\n/analisis - analisis performa Threads + saran\n\nTombol di bawah: Mode Asisten (pesan dijawab agent) atau Mode Threads (pesan jadi draf Threads).\n/tes - tes run model, alat, dan Threads (tanpa posting)\n/tes lengkap - plus cari web, gambar, dan contoh draf');
   }
   if (/^\/tes(@\S+)?(\s|$)/i.test(text)) {
     if (busy.has(chat)) return say(chat, 'Masih memproses permintaan sebelumnya, tunggu sebentar ya.');

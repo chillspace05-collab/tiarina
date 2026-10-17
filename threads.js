@@ -2,6 +2,7 @@
 // Memakai Threads API resmi (izin threads_basic + threads_content_publish).
 
 const path = require('path');
+const buatAnalisis = require('./analisis');
 const crypto = require('crypto');
 
 const PILAR_UMUM = [
@@ -188,6 +189,7 @@ function buatAkun(deps, cfg) {
     gaya: pakai('GAYA') || GAYA_BAWAAN,
     persona: pakai('PERSONA') || PERSONA_BAWAAN,
     jeda: false,
+    analisisAuto: false,
   });
   const s0 = readJson(F, {});
   const st = {
@@ -205,6 +207,7 @@ function buatAkun(deps, cfg) {
     tokenCoba: s0.tokenCoba || 0,
     peringatan: s0.peringatan || '',
     username: s0.username || '',
+    analisis: s0.analisis || {},
   };
   st.set.panjang = rapikanPanjang(st.set.panjang) || bawaan().panjang;
   const simpan = () => writeJson(F, st);
@@ -532,7 +535,7 @@ Balas HANYA dengan JSON: {"hook":"baris pertama","tag":"AI Threads","bagian":["t
     bagian = bagian.flatMap(potong).slice(0, MAKS_UTAS);
     if (!bagian.length) throw new Error('Draf kosong. Coba /buat lagi.');
     const tag = rapikanTag(j.tag) || TAG_PILAR[topik] || '';
-    return { topik, tag, utas: panjang, hook: String(j.hook || bagian[0].split('\n')[0]).slice(0, 120), bagian, dibuat: wib() };
+    return { topik, tag, nada, utas: panjang, hook: String(j.hook || bagian[0].split('\n')[0]).slice(0, 120), bagian, dibuat: wib() };
   }
 
   // tulisan untuk jadwal: pakai topik titipan (/nanti) sekali, lalu kembali normal
@@ -566,7 +569,7 @@ Balas HANYA dengan JSON: {"hook":"baris pertama","tag":"AI Threads","bagian":["t
     let link = '';
     try { link = (await th('GET', `/${pertama}`, { fields: 'permalink' })).permalink || ''; } catch { /* link opsional */ }
     st.terakhirPosting = wib().slice(0, 16);
-    st.riwayat = [...st.riwayat, { tanggal: st.terakhirPosting.slice(0, 10), topik: draf.topik, tag: draf.tag || '', hook: draf.hook, ids, link }].slice(-30);
+    st.riwayat = [...st.riwayat, { tanggal: st.terakhirPosting.slice(0, 10), topik: draf.topik, tag: draf.tag || '', nada: draf.nada || '', jam: st.terakhirPosting.slice(11), hook: draf.hook, ids, link }].slice(-30);
     st.draf = null;
     simpan();
     return link;
@@ -607,6 +610,12 @@ Balas HANYA dengan JSON: {"hook":"baris pertama","tag":"AI Threads","bagian":["t
   }
 
 
+  // ---------- analisis performa (/analisis, /terapkan) ----------
+  const an = buatAnalisis({
+    th, st, simpan, llmText, wib, say, tg, CB, USER, labelAkun, daftarJadwal, rapikanJadwal, rapikanPanjang, sensor,
+    cadangkan: () => cadangkanJikaBerubah(),
+  });
+
   // ---------- perintah Telegram ----------
   let sibuk = false;
   async function kunci(fn) {
@@ -623,6 +632,7 @@ Mode: ${st.set.mode}${st.set.jeda ? ' (DIJEDA)' : ''}
 Jadwal: ${daftarJadwal().join(', ')} WIB (${daftarJadwal().length}x sehari)
 Topik: ${st.set.topik}${st.topikNanti ? `\nTopik titipan untuk jadwal berikutnya: ${st.topikNanti}` : ''}
 Panjang: ${st.set.panjang} bagian
+Analisis otomatis: ${st.set.analisisAuto ? 'ON' : 'OFF'} (laporan tiap 21:00 WIB)
 Terakhir posting: ${st.terakhirPosting || '-'}
 Token: ${infoToken()}
 
@@ -635,18 +645,27 @@ Perintah:
 /buat - draf dulu (tidak langsung posting), /posting, /jadwal 07:00,12:00,19:00
 /mode otomatis (langsung posting, preview dikirim ke sini) | setuju (draf disetujui dulu)
 /topik acak|nomor|teks, /panjang 3 atau 2-3 (acak), /gaya teks|reset, /persona teks|reset
-/jeda, /lanjut, /token TOKEN_BARU`;
+/jeda, /lanjut, /token TOKEN_BARU
+/analisis - views, capaian, penyebab, saran | /analisis auto on|off | /terapkan nomor|semua`;
   }
 
   async function handleCommand(chat, text, msgId) {
     const [c, ...rest] = text.split(/\s+/);
     const cmd = c.toLowerCase().split('@')[0];
     const arg = rest.join(' ').trim();
-    const daftar = ['/threads', '/jadwal', '/mode', '/topik', '/panjang', '/gaya', '/persona', '/buat', '/dadakan', '/nanti', '/posting', '/jeda', '/lanjut', '/token'];
+    const daftar = ['/threads', '/jadwal', '/mode', '/topik', '/panjang', '/gaya', '/persona', '/buat', '/dadakan', '/nanti', '/posting', '/jeda', '/lanjut', '/token', '/analisis', '/terapkan'];
     if (!daftar.includes(cmd)) return false;
     if (!AKTIF) { await say(chat, 'Fitur Threads tidak aktif di bot ini.'); return true; }
 
     if (cmd === '/threads') await say(chat, status());
+    else if (cmd === '/analisis') {
+      const m = /^auto\s*(on|off)?$/i.exec(arg);
+      if (m) {
+        if (m[1]) { st.set.analisisAuto = m[1].toLowerCase() === 'on'; simpan(); }
+        await say(chat, `Analisis otomatis: ${st.set.analisisAuto ? 'ON' : 'OFF'}.\nTiap 21:00 WIB laporan analisis dikirim ke sini. ${st.set.analisisAuto ? 'Saran yang datanya cukup kuat (jadwal, panjang utas, topik titipan) langsung diterapkan, maksimal sekali per 3 hari per jenis.' : 'Saran hanya ditampilkan; terapkan dengan tombol atau /terapkan.'}`);
+      } else if (!adaToken()) await say(chat, 'Token Threads akun ini belum ada.');
+      else await an.jalankan(chat);
+    } else if (cmd === '/terapkan') await an.terapkan(chat, arg || '');
     else if (cmd === '/token') {
       if (!arg) await say(chat, `Token: ${infoToken()}\n\nUntuk memperbarui, buat token baru di dashboard Meta lalu kirim:\n/token TOKEN_BARU\nPesan berisi token akan langsung kuhapus dari chat.`);
       else await pasangToken(chat, arg, msgId);
@@ -739,6 +758,7 @@ Perintah:
     tg('answerCallbackQuery', { callback_query_id: cq.id }).catch(() => {});
     if (!owner || chat !== owner || !String(cq.data || '').startsWith(CB)) return;
     const aksi = cq.data.slice(CB.length);
+    if (aksi.startsWith('an:')) return an.terapkan(chat, aksi.slice(3));
     if (aksi.startsWith('del:')) {
       try { await hapusPostingan(chat, aksi.slice(4)); } catch (e) { await say(chat, `Gagal menghapus: ${pesanGagal(e)}`); }
       return;
@@ -778,6 +798,7 @@ Perintah:
     await cadangkanJikaBerubah();
     await perbaruiToken().catch(() => {});
     await cekMasaToken().catch(() => {});
+    if (adaToken()) an.harian(owner);
     if (st.set.jeda || sibuk) return;
     const { tanggal, menit } = sekarang();
     if (menit == null || Date.now() < st.cobaLagi) return;
