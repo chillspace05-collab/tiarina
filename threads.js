@@ -107,6 +107,46 @@ function rapikanPanjang(x) {
 
 // ---------- cadangan token terenkripsi (disematkan di chat Telegram), satu pesan untuk semua akun ----------
 const KUNCI = crypto.createHash('sha256').update('threads-cadangan:' + (process.env.TELEGRAM_BOT_TOKEN || '')).digest();
+// daftar produk affiliate disimpan sebagai baris "nama | link" (nama boleh kosong)
+const MAKS_AFFILIATE = 30;
+const URL_RE = /https?:\/\/[^\s<>"']+/g;
+function produkDari(teks) {
+  const out = [];
+  for (const baris of String(teks || '').split(/\n|\|\|/)) {
+    const links = (baris.match(URL_RE) || []).map((u) => u.replace(/[.,;:!?)\]]+$/, ''));
+    if (!links.length) continue;
+    let nama = links.length > 1 ? '' : baris.replace(URL_RE, ' ')
+      .replace(/dapatkan sekarang[^!.]*(shopee|tokopedia|tiktok)[^!.]*[!.]?/i, ' ')
+      .replace(/\s*dengan harga\s+Rp\s?[\d.,]+(\s*-\s*Rp\s?[\d.,]+)?\.?/i, ' ')
+      .replace(/^\s*(\d+[.)]\s*)?(cek\s+)?/i, '')
+      .replace(/[\s|👉:\-–—•]+$/u, '').replace(/^[\s|👉:\-–—•]+/u, '')
+      .replace(/\s+/g, ' ').trim().slice(0, 60);
+    for (const link of links) if (!out.some((p) => p.link === link)) out.push({ nama, link });
+  }
+  return out;
+}
+const barisProduk = (list) => list.map((p) => (p.nama ? `${p.nama} | ${p.link}` : p.link)).join('\n');
+// nama produk dari link pendek (mis. s.shopee.co.id): ikuti redirect, ambil slug "Nama-Produk-i.123.456" atau og:title
+async function cariNamaProduk(url) {
+  const slug = (u) => { const m = /\/([^/?#]+)-i\.\d+\.\d+/.exec(u); return m ? decodeURIComponent(m[1]).replace(/[-_]+/g, ' ').trim() : ''; };
+  let u = url;
+  try {
+    for (let i = 0; i < 5; i++) {
+      const s0 = slug(u);
+      if (s0) return s0.slice(0, 60);
+      const r = await fetch(u, { redirect: 'manual', signal: AbortSignal.timeout(8000), headers: { 'user-agent': 'facebookexternalhit/1.1' } });
+      const loc = r.headers.get('location');
+      if (loc) { u = new URL(loc, u).href; continue; }
+      const h = (await r.text().catch(() => '')).slice(0, 200000);
+      const m = /<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)/i.exec(h) || /<title>([^<]+)<\/title>/i.exec(h);
+      const t = (m ? m[1] : '').replace(/&amp;/g, '&').replace(/&#39;|&apos;/g, "'").replace(/&quot;/g, '"')
+        .replace(/\s*[|-]\s*(Shopee|Tokopedia|TikTok).*$/i, '').trim();
+      return !t || /^(shopee|tokopedia|tiktok)\b|error|tidak ditemukan|not found/i.test(t) ? '' : t.slice(0, 60);
+    }
+  } catch { /* nama tidak terbaca: caption dibuat umum */ }
+  return '';
+}
+
 function enkripsi(obj) {
   const iv = crypto.randomBytes(12);
   const c = crypto.createCipheriv('aes-256-gcm', KUNCI, iv);
@@ -191,6 +231,7 @@ function buatAkun(deps, cfg) {
     jeda: false,
     analisisAuto: false,
     affiliate: envSendiri('AFFILIATE').replace(/\\n/g, '\n'),
+    affiliateOff: false,
   });
   const s0 = readJson(F, {});
   const st = {
@@ -209,13 +250,33 @@ function buatAkun(deps, cfg) {
     peringatan: s0.peringatan || '',
     username: s0.username || '',
     analisis: s0.analisis || {},
+    affIdx: s0.affIdx || 0, // giliran produk affiliate berikutnya
   };
   st.set.panjang = rapikanPanjang(st.set.panjang) || bawaan().panjang;
   const simpan = () => writeJson(F, st);
-  const variasiAffiliate = () => String(st.set.affiliate || '').split(/\s*\|\|\s*/).map((x) => x.trim()).filter(Boolean);
-  function pilihAffiliate() {
-    const v = variasiAffiliate();
-    return v.length ? v[Math.floor(Math.random() * v.length)].slice(0, 500) : '';
+  const daftarProduk = () => produkDari(st.set.affiliate);
+  const affiliateAktif = () => !st.set.affiliateOff && daftarProduk().length > 0;
+  // balasan affiliate: caption pendek dari AI (gaya akun) + link produk, produk dipakai bergiliran
+  async function captionAffiliate(hook, maju = true) {
+    const list = daftarProduk();
+    if (st.set.affiliateOff || !list.length) return '';
+    const p = list[(st.affIdx || 0) % list.length];
+    if (maju) { st.affIdx = ((st.affIdx || 0) + 1) % list.length; simpan(); }
+    let cap = '';
+    try {
+      const t = await llmText(`Kamu menulis satu balasan pendek di akhir utas Threads untuk menyisipkan link affiliate.
+Persona penulis: ${st.set.persona}
+Gaya bahasa:
+${st.set.gaya}`, `Produk: ${p.nama || '(nama produk tidak diketahui: jangan sebut nama atau jenis produk, buat ajakan umum untuk cek link di bawah)'}
+Cerita utas sebelumnya (tidak harus nyambung, boleh diabaikan): ${hook || '-'}
+
+Tulis caption 1-2 kalimat (maksimal 200 karakter) yang santai, sesuai gaya di atas, dan bikin orang penasaran membuka link di bawahnya.
+Aturan: jangan mengarang harga, diskon, promo, stok, spesifikasi, atau klaim manfaat; jangan mengaku sudah memakai atau membuktikan produknya; tanpa hashtag; jangan menulis link; tanpa tanda kutip; tanpa tanda pisah panjang.
+Balas HANYA dengan teks caption.`);
+      cap = rapikan(String(t || '').replace(URL_RE, '').replace(/#\S+/g, '').replace(/^["'“”\s]+|["'“”\s]+$/g, '')).slice(0, 300);
+    } catch { /* LLM gagal: caption cadangan */ }
+    if (!cap) cap = p.nama ? `Iseng nemu ${p.nama}, cek sendiri ya 👇` : 'Iseng nemu ini, cek sendiri ya 👇';
+    return `${cap}\n${p.link}`.slice(0, 500);
   }
   function pilihPanjang() {
     const [a, b = a] = String(st.set.panjang).split('-').map(Number);
@@ -541,7 +602,9 @@ Balas HANYA dengan JSON: {"hook":"baris pertama","tag":"AI Threads","bagian":["t
     bagian = bagian.flatMap(potong).slice(0, MAKS_UTAS);
     if (!bagian.length) throw new Error('Draf kosong. Coba /buat lagi.');
     const tag = rapikanTag(j.tag) || TAG_PILAR[topik] || '';
-    return { topik, tag, nada, utas: panjang, hook: String(j.hook || bagian[0].split('\n')[0]).slice(0, 120), bagian, dibuat: wib() };
+    const hook = String(j.hook || bagian[0].split('\n')[0]).slice(0, 120);
+    const affiliate = await captionAffiliate(hook);
+    return { topik, tag, nada, utas: panjang, hook, bagian, affiliate, dibuat: wib() };
   }
 
   // tulisan untuk jadwal: pakai topik titipan (/nanti) sekali, lalu kembali normal
@@ -572,7 +635,8 @@ Balas HANYA dengan JSON: {"hook":"baris pertama","tag":"AI Threads","bagian":["t
       ids.push(p.id);
       pertama = pertama || p.id;
     }
-    draf.affiliate = pilihAffiliate();
+    if (draf.affiliate === undefined) draf.affiliate = await captionAffiliate(draf.hook); // draf lama
+    if (!affiliateAktif()) draf.affiliate = ''; // dimatikan setelah draf ditulis
     if (draf.affiliate) {
       try {
         await sleep(3000);
@@ -619,13 +683,14 @@ Balas HANYA dengan JSON: {"hook":"baris pertama","tag":"AI Threads","bagian":["t
   async function kirimDraf(chat, draf, awalan = '') {
     const n = draf.bagian.length;
     const isi = n > 1 ? draf.bagian.map((b, i) => `[${i + 1}/${n}]\n${b}`).join('\n\n') : draf.bagian[0];
-    const judul = `${awalan}Draf Threads (${draf.topik})${n > 1 ? `, ${n} utas` : ''}:${draf.tag ? `\nTopik Threads: ${draf.tag}` : ''}${variasiAffiliate().length ? '\n+ balasan affiliate otomatis di akhir (/affiliate)' : ''}\n\n`;
+    const judul = `${awalan}Draf Threads (${draf.topik})${n > 1 ? `, ${n} utas` : ''}:${draf.tag ? `\nTopik Threads: ${draf.tag}` : ''}\n\n`;
+    const aff = draf.affiliate ? `\n\n[balasan affiliate]\n${draf.affiliate}` : '';
     const tombol = { inline_keyboard: [
       [{ text: 'Posting sekarang', callback_data: `${CB}post` }, { text: `Jadwalkan ${draf.slot || slotBerikutnya()}`, callback_data: `${CB}sched` }],
       [{ text: 'Tulis ulang', callback_data: `${CB}redo` }, { text: 'Lewati', callback_data: `${CB}skip` }],
     ] };
-    if ((judul + isi).length <= 4000) return tg('sendMessage', { chat_id: chat, text: labelAkun() + judul + isi, reply_markup: tombol });
-    await say(chat, judul + isi);
+    if ((judul + isi + aff).length <= 4000) return tg('sendMessage', { chat_id: chat, text: labelAkun() + judul + isi + aff, reply_markup: tombol });
+    await say(chat, judul + isi + aff);
     await tg('sendMessage', { chat_id: chat, text: labelAkun() + `Draf di atas (${n} utas) mau diapakan?`, reply_markup: tombol });
   }
 
@@ -652,7 +717,7 @@ Mode: ${st.set.mode}${st.set.jeda ? ' (DIJEDA)' : ''}
 Jadwal: ${daftarJadwal().join(', ')} WIB (${daftarJadwal().length}x sehari)
 Topik: ${st.set.topik}${st.topikNanti ? `\nTopik titipan untuk jadwal berikutnya: ${st.topikNanti}` : ''}
 Panjang: ${st.set.panjang} bagian
-Affiliate: ${variasiAffiliate().length ? `ON (${variasiAffiliate().length} variasi, jadi balasan terakhir)` : 'OFF'}
+Affiliate: ${affiliateAktif() ? `ON (${daftarProduk().length} link bergiliran, caption AI)` : daftarProduk().length ? `OFF (${daftarProduk().length} link tersimpan)` : 'OFF'}
 Analisis otomatis: ${st.set.analisisAuto ? 'ON' : 'OFF'} (laporan tiap 21:00 WIB)
 Terakhir posting: ${st.terakhirPosting || '-'}
 Token: ${infoToken()}
@@ -667,7 +732,7 @@ Perintah:
 /mode otomatis (langsung posting, preview dikirim ke sini) | setuju (draf disetujui dulu)
 /topik acak|nomor|teks, /panjang 3 atau 2-3 (acak), /gaya teks|reset, /persona teks|reset
 /jeda, /lanjut, /token TOKEN_BARU
-/affiliate teks+link | off - balasan affiliate di akhir tiap postingan
+/affiliate - link affiliate (bulk) jadi balasan terakhir tiap postingan, caption dari AI
 /analisis - views, capaian, penyebab, saran | /analisis auto on|off | /terapkan nomor|semua`;
   }
 
@@ -690,15 +755,47 @@ Perintah:
     } else if (cmd === '/terapkan') await an.terapkan(chat, arg || '');
     else if (cmd === '/affiliate') {
       const mentah = text.replace(/^\S+[ \t]*/, '').trim(); // baris baru dipertahankan
+      const [kata, ...sisaKata] = mentah.split(/\s+/);
+      const sub = (kata || '').toLowerCase();
+      const list = daftarProduk();
+      const bantuan = `Cara pakai:
+/affiliate lalu tempel link (bisa banyak sekaligus, satu link per baris; boleh diberi nama: Nama produk | link)
+/affiliate ganti ... - ganti seluruh daftar
+/affiliate hapus 2,5 | hapus semua
+/affiliate off | on
+/affiliate tes - contoh caption (tidak diposting)`;
       if (!mentah) {
-        const v = variasiAffiliate();
-        await say(chat, `${v.length ? `Affiliate ON, ${v.length} variasi (dipilih acak, diposting sebagai balasan terakhir tiap postingan):\n\n${v.map((x, i) => `${i + 1}. ${x}`).join('\n\n')}` : 'Affiliate OFF.'}\n\nAtur: /affiliate teks dan link (boleh beberapa baris; pisahkan variasi dengan ||)\nContoh: /affiliate Barang yang kupakai di cerita ini 👉 https://s.shopee.co.id/xxxx || Cek di sini ya: https://s.shopee.co.id/yyyy\nMatikan: /affiliate off`);
-      } else if (/^(off|mati|hapus)$/i.test(mentah)) { st.set.affiliate = ''; simpan(); await say(chat, 'Affiliate OFF. Postingan berikutnya tanpa balasan affiliate.'); }
-      else {
-        st.set.affiliate = mentah; simpan();
-        const v = variasiAffiliate();
-        const panjang = v.filter((x) => x.length > 500).length;
-        await say(chat, `Affiliate ON (${v.length} variasi). Setiap postingan akan ditambah 1 balasan berisi teks ini di akhir utas.${panjang ? `\n⚠️ ${panjang} variasi lebih dari 500 karakter dan akan dipotong.` : ''}`);
+        const isi = list.map((p, i) => `${i + 1}. ${p.nama || '(nama tidak terbaca)'}\n${p.link}`).join('\n');
+        await say(chat, `Affiliate ${affiliateAktif() ? 'ON' : 'OFF'}. ${list.length ? `${list.length} link, dipakai bergiliran; tiap postingan ditambah 1 balasan berisi caption dari AI + link.\n\n${isi}` : 'Belum ada link.'}\n\n${bantuan}`);
+      } else if (sub === 'off' || sub === 'on') {
+        st.set.affiliateOff = sub === 'off'; simpan();
+        await say(chat, sub === 'off' ? 'Affiliate OFF (daftar link tetap tersimpan). Nyalakan lagi: /affiliate on' : list.length ? `Affiliate ON (${list.length} link).` : 'Affiliate ON, tapi belum ada link. Kirim /affiliate lalu tempel link-nya.');
+      } else if (sub === 'hapus') {
+        const a = sisaKata.join(' ').toLowerCase();
+        const no = a === 'semua' ? list.map((_, i) => i + 1) : (a.match(/\d+/g) || []).map(Number).filter((n) => n >= 1 && n <= list.length);
+        if (!no.length) await say(chat, `Contoh: /affiliate hapus 2 atau /affiliate hapus 2,5 atau /affiliate hapus semua (ada ${list.length} link).`);
+        else { st.set.affiliate = barisProduk(list.filter((_, i) => !no.includes(i + 1))); st.affIdx = 0; simpan(); await say(chat, `${no.length} link dihapus. Sisa ${list.length - no.length} link.`); }
+      } else if (sub === 'tes') {
+        if (!list.length) await say(chat, 'Belum ada link affiliate.');
+        else await say(chat, `Contoh balasan affiliate (tidak diposting):\n\n${await captionAffiliate(st.riwayat.at(-1)?.hook || '', false)}`);
+      } else {
+        const gantiSemua = sub === 'ganti';
+        const baru = produkDari(gantiSemua ? mentah.slice(kata.length) : mentah);
+        if (!baru.length) { await say(chat, `Tidak ada link yang terbaca.\n\n${bantuan}`); return true; }
+        const lama = gantiSemua ? [] : list;
+        const tambah = baru.filter((p) => !lama.some((x) => x.link === p.link));
+        let dinamai = 0; // link lama yang dikirim ulang dengan nama: namanya diperbarui
+        for (const p of baru) { const x = lama.find((y) => y.link === p.link); if (x && p.nama && x.nama !== p.nama) { x.nama = p.nama; dinamai++; } }
+        const muat = tambah.slice(0, Math.max(0, MAKS_AFFILIATE - lama.length));
+        if (muat.some((p) => !p.nama)) await say(chat, `Membaca nama produk dari ${muat.filter((p) => !p.nama).length} link...`);
+        for (let i = 0; i < muat.length; i += 5) {
+          await Promise.all(muat.slice(i, i + 5).map(async (p) => { if (!p.nama) p.nama = await cariNamaProduk(p.link); }));
+        }
+        st.set.affiliate = barisProduk([...lama, ...muat]);
+        if (gantiSemua) st.affIdx = 0;
+        st.set.affiliateOff = false; simpan();
+        const tanpaNama = muat.filter((p) => !p.nama).length;
+        await say(chat, `${gantiSemua ? 'Daftar diganti' : 'Ditambahkan'}: ${muat.length} link${baru.length - tambah.length ? `, ${baru.length - tambah.length} duplikat dilewati` : ''}${dinamai ? `, ${dinamai} nama diperbarui` : ''}${tambah.length > muat.length ? `, ${tambah.length - muat.length} tidak masuk (maksimal ${MAKS_AFFILIATE})` : ''}. Total ${lama.length + muat.length} link, affiliate ON.${tanpaNama ? `\n${tanpaNama} link tanpa nama produk: caption-nya dibuat umum. Agar lebih pas, kirim ulang dengan format: Nama produk | link` : ''}\nLihat daftar: /affiliate · contoh caption: /affiliate tes`);
       }
     }
     else if (cmd === '/token') {
@@ -925,6 +1022,13 @@ module.exports = function createThreads(deps) {
     if (teks.length > 4000) { // gaya/persona panjang: lewati agar muat satu pesan Telegram
       for (const c of Object.values(isi.akun)) { delete c.ubah.gaya; delete c.ubah.persona; }
       teks = kepala + enkripsi(isi);
+    }
+    if (teks.length > 4000) { // daftar affiliate panjang: simpan link saja tanpa nama, lalu pangkas dari belakang
+      for (const c of Object.values(isi.akun)) if (c.ubah.affiliate) c.ubah.affiliate = produkDari(c.ubah.affiliate).map((p) => p.link).join('\n');
+      teks = kepala + enkripsi(isi);
+      for (const c of Object.values(isi.akun)) {
+        while (teks.length > 4000 && c.ubah.affiliate) { c.ubah.affiliate = c.ubah.affiliate.split('\n').slice(0, -1).join('\n'); teks = kepala + enkripsi(isi); }
+      }
     }
     terakhirDicadangkan = JSON.stringify(isiCadangan());
     if (mst.cadanganId) { // perbarui pesan yang sudah di-pin, tanpa pesan baru
