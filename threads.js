@@ -127,14 +127,15 @@ function produkDari(teks) {
 }
 const barisProduk = (list) => list.map((p) => (p.nama ? `${p.nama} | ${p.link}` : p.link)).join('\n');
 // nama produk dari link pendek (mis. s.shopee.co.id): ikuti redirect, ambil slug "Nama-Produk-i.123.456" atau og:title
+// (UA browser: s.shopee.co.id menolak UA bot dengan 403)
 async function cariNamaProduk(url) {
   const slug = (u) => { const m = /\/([^/?#]+)-i\.\d+\.\d+/.exec(u); return m ? decodeURIComponent(m[1]).replace(/[-_]+/g, ' ').trim() : ''; };
   let u = url;
   try {
     for (let i = 0; i < 5; i++) {
       const s0 = slug(u);
-      if (s0) return s0.slice(0, 60);
-      const r = await fetch(u, { redirect: 'manual', signal: AbortSignal.timeout(8000), headers: { 'user-agent': 'facebookexternalhit/1.1' } });
+      if (s0) return s0.length > 60 ? s0.slice(0, 61).replace(/\s+\S*$/, '') : s0; // dipotong di batas kata
+      const r = await fetch(u, { redirect: 'manual', signal: AbortSignal.timeout(8000), headers: { 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36' } });
       const loc = r.headers.get('location');
       if (loc) { u = new URL(loc, u).href; continue; }
       const h = (await r.text().catch(() => '')).slice(0, 200000);
