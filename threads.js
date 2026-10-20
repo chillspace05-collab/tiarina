@@ -190,6 +190,7 @@ function buatAkun(deps, cfg) {
     persona: pakai('PERSONA') || PERSONA_BAWAAN,
     jeda: false,
     analisisAuto: false,
+    affiliate: envSendiri('AFFILIATE').replace(/\\n/g, '\n'),
   });
   const s0 = readJson(F, {});
   const st = {
@@ -211,6 +212,11 @@ function buatAkun(deps, cfg) {
   };
   st.set.panjang = rapikanPanjang(st.set.panjang) || bawaan().panjang;
   const simpan = () => writeJson(F, st);
+  const variasiAffiliate = () => String(st.set.affiliate || '').split(/\s*\|\|\s*/).map((x) => x.trim()).filter(Boolean);
+  function pilihAffiliate() {
+    const v = variasiAffiliate();
+    return v.length ? v[Math.floor(Math.random() * v.length)].slice(0, 500) : '';
+  }
   function pilihPanjang() {
     const [a, b = a] = String(st.set.panjang).split('-').map(Number);
     return a + Math.floor(Math.random() * (b - a + 1));
@@ -566,10 +572,23 @@ Balas HANYA dengan JSON: {"hook":"baris pertama","tag":"AI Threads","bagian":["t
       ids.push(p.id);
       pertama = pertama || p.id;
     }
+    draf.affiliate = pilihAffiliate();
+    if (draf.affiliate) {
+      try {
+        await sleep(3000);
+        const c = await th('POST', `/${USER}/threads`, { media_type: 'TEXT', text: draf.affiliate, reply_to_id: balasKe });
+        await sleep(3000);
+        const p = await th('POST', `/${USER}/threads_publish`, { creation_id: c.id });
+        ids.push(p.id);
+      } catch (e) {
+        if (masalahToken(e.message)) throw e;
+        draf.affiliateGagal = sensor(e.message).slice(0, 200);
+      }
+    }
     let link = '';
     try { link = (await th('GET', `/${pertama}`, { fields: 'permalink' })).permalink || ''; } catch { /* link opsional */ }
     st.terakhirPosting = wib().slice(0, 16);
-    st.riwayat = [...st.riwayat, { tanggal: st.terakhirPosting.slice(0, 10), topik: draf.topik, tag: draf.tag || '', nada: draf.nada || '', jam: st.terakhirPosting.slice(11), hook: draf.hook, ids, link }].slice(-30);
+    st.riwayat = [...st.riwayat, { tanggal: st.terakhirPosting.slice(0, 10), topik: draf.topik, tag: draf.tag || '', nada: draf.nada || '', jam: st.terakhirPosting.slice(11), hook: draf.hook, ids, link, ...(draf.affiliate && !draf.affiliateGagal ? { affiliate: true } : {}) }].slice(-30);
     st.draf = null;
     simpan();
     return link;
@@ -581,7 +600,8 @@ Balas HANYA dengan JSON: {"hook":"baris pertama","tag":"AI Threads","bagian":["t
     const isi = n > 1 ? draf.bagian.map((b, i) => `[${i + 1}/${n}]\n${b}`).join('\n\n') : draf.bagian[0];
     const r = st.riwayat.at(-1);
     const tombol = r?.ids?.length ? { inline_keyboard: [[{ text: '🗑 Hapus dari Threads', callback_data: `${CB}del:${r.ids[0]}` }]] } : undefined;
-    const teks = `${awalan} (${draf.topik}${n > 1 ? `, ${n} utas` : ''}):${draf.tag ? `\nTopik Threads: ${draf.tag}` : ''}${link ? `\n${link}` : ''}\n\n${isi}`;
+    const aff = draf.affiliate ? (draf.affiliateGagal ? `\n\n⚠️ Balasan affiliate gagal diposting: ${draf.affiliateGagal}` : `\n\n[balasan affiliate]\n${draf.affiliate}`) : '';
+    const teks = `${awalan} (${draf.topik}${n > 1 ? `, ${n} utas` : ''}):${draf.tag ? `\nTopik Threads: ${draf.tag}` : ''}${link ? `\n${link}` : ''}\n\n${isi}${aff}`;
     if (teks.length <= 4000) return tg('sendMessage', { chat_id: chat, text: labelAkun() + teks, ...(tombol ? { reply_markup: tombol } : {}) });
     await say(chat, teks);
     if (tombol) await tg('sendMessage', { chat_id: chat, text: labelAkun() + 'Postingan di atas:', reply_markup: tombol });
@@ -599,7 +619,7 @@ Balas HANYA dengan JSON: {"hook":"baris pertama","tag":"AI Threads","bagian":["t
   async function kirimDraf(chat, draf, awalan = '') {
     const n = draf.bagian.length;
     const isi = n > 1 ? draf.bagian.map((b, i) => `[${i + 1}/${n}]\n${b}`).join('\n\n') : draf.bagian[0];
-    const judul = `${awalan}Draf Threads (${draf.topik})${n > 1 ? `, ${n} utas` : ''}:${draf.tag ? `\nTopik Threads: ${draf.tag}` : ''}\n\n`;
+    const judul = `${awalan}Draf Threads (${draf.topik})${n > 1 ? `, ${n} utas` : ''}:${draf.tag ? `\nTopik Threads: ${draf.tag}` : ''}${variasiAffiliate().length ? '\n+ balasan affiliate otomatis di akhir (/affiliate)' : ''}\n\n`;
     const tombol = { inline_keyboard: [
       [{ text: 'Posting sekarang', callback_data: `${CB}post` }, { text: `Jadwalkan ${draf.slot || slotBerikutnya()}`, callback_data: `${CB}sched` }],
       [{ text: 'Tulis ulang', callback_data: `${CB}redo` }, { text: 'Lewati', callback_data: `${CB}skip` }],
@@ -632,6 +652,7 @@ Mode: ${st.set.mode}${st.set.jeda ? ' (DIJEDA)' : ''}
 Jadwal: ${daftarJadwal().join(', ')} WIB (${daftarJadwal().length}x sehari)
 Topik: ${st.set.topik}${st.topikNanti ? `\nTopik titipan untuk jadwal berikutnya: ${st.topikNanti}` : ''}
 Panjang: ${st.set.panjang} bagian
+Affiliate: ${variasiAffiliate().length ? `ON (${variasiAffiliate().length} variasi, jadi balasan terakhir)` : 'OFF'}
 Analisis otomatis: ${st.set.analisisAuto ? 'ON' : 'OFF'} (laporan tiap 21:00 WIB)
 Terakhir posting: ${st.terakhirPosting || '-'}
 Token: ${infoToken()}
@@ -646,6 +667,7 @@ Perintah:
 /mode otomatis (langsung posting, preview dikirim ke sini) | setuju (draf disetujui dulu)
 /topik acak|nomor|teks, /panjang 3 atau 2-3 (acak), /gaya teks|reset, /persona teks|reset
 /jeda, /lanjut, /token TOKEN_BARU
+/affiliate teks+link | off - balasan affiliate di akhir tiap postingan
 /analisis - views, capaian, penyebab, saran | /analisis auto on|off | /terapkan nomor|semua`;
   }
 
@@ -653,7 +675,7 @@ Perintah:
     const [c, ...rest] = text.split(/\s+/);
     const cmd = c.toLowerCase().split('@')[0];
     const arg = rest.join(' ').trim();
-    const daftar = ['/threads', '/jadwal', '/mode', '/topik', '/panjang', '/gaya', '/persona', '/buat', '/dadakan', '/nanti', '/posting', '/jeda', '/lanjut', '/token', '/analisis', '/terapkan'];
+    const daftar = ['/threads', '/jadwal', '/mode', '/topik', '/panjang', '/gaya', '/persona', '/buat', '/dadakan', '/nanti', '/posting', '/jeda', '/lanjut', '/token', '/analisis', '/terapkan', '/affiliate'];
     if (!daftar.includes(cmd)) return false;
     if (!AKTIF) { await say(chat, 'Fitur Threads tidak aktif di bot ini.'); return true; }
 
@@ -666,6 +688,19 @@ Perintah:
       } else if (!adaToken()) await say(chat, 'Token Threads akun ini belum ada.');
       else await an.jalankan(chat);
     } else if (cmd === '/terapkan') await an.terapkan(chat, arg || '');
+    else if (cmd === '/affiliate') {
+      const mentah = text.replace(/^\S+[ \t]*/, '').trim(); // baris baru dipertahankan
+      if (!mentah) {
+        const v = variasiAffiliate();
+        await say(chat, `${v.length ? `Affiliate ON, ${v.length} variasi (dipilih acak, diposting sebagai balasan terakhir tiap postingan):\n\n${v.map((x, i) => `${i + 1}. ${x}`).join('\n\n')}` : 'Affiliate OFF.'}\n\nAtur: /affiliate teks dan link (boleh beberapa baris; pisahkan variasi dengan ||)\nContoh: /affiliate Barang yang kupakai di cerita ini 👉 https://s.shopee.co.id/xxxx || Cek di sini ya: https://s.shopee.co.id/yyyy\nMatikan: /affiliate off`);
+      } else if (/^(off|mati|hapus)$/i.test(mentah)) { st.set.affiliate = ''; simpan(); await say(chat, 'Affiliate OFF. Postingan berikutnya tanpa balasan affiliate.'); }
+      else {
+        st.set.affiliate = mentah; simpan();
+        const v = variasiAffiliate();
+        const panjang = v.filter((x) => x.length > 500).length;
+        await say(chat, `Affiliate ON (${v.length} variasi). Setiap postingan akan ditambah 1 balasan berisi teks ini di akhir utas.${panjang ? `\n⚠️ ${panjang} variasi lebih dari 500 karakter dan akan dipotong.` : ''}`);
+      }
+    }
     else if (cmd === '/token') {
       if (!arg) await say(chat, `Token: ${infoToken()}\n\nUntuk memperbarui, buat token baru di dashboard Meta lalu kirim:\n/token TOKEN_BARU\nPesan berisi token akan langsung kuhapus dari chat.`);
       else await pasangToken(chat, arg, msgId);

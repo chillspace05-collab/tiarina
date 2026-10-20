@@ -59,7 +59,8 @@ module.exports = function buatAnalisis(d) {
       p.topik = r?.topik || p.topic_tag || '-';
       p.tag = p.topic_tag || r?.tag || '';
       p.nada = r?.nada || '';
-      p.bagian = r?.ids?.length || 0;
+      p.sendiri = r?.ids?.length ? r.ids.length - 1 : undefined; // semua balasan sendiri (utas + affiliate)
+      p.bagian = (r?.ids?.length || 0) - (r?.affiliate ? 1 : 0); // bagian cerita saja
     }
     // jumlah bagian utas untuk postingan yang tidak ada di riwayat bot (mis. setelah deploy ulang)
     for (const p of posts.filter((x) => !x.bagian).slice(0, 30)) {
@@ -69,7 +70,7 @@ module.exports = function buatAnalisis(d) {
       } catch { p.bagian = 1; }
     }
     // metrik replies ikut menghitung bagian utas sendiri (balasan berantai): dikurangi
-    for (const p of posts) if (p.m) p.m.replies = Math.max(0, (p.m.replies || 0) - Math.max(0, (p.bagian || 1) - 1));
+    for (const p of posts) if (p.m) p.m.replies = Math.max(0, (p.m.replies || 0) - (p.sendiri ?? Math.max(0, (p.bagian || 1) - 1)));
     const user = {};
     if (izin) {
       try {
