@@ -68,6 +68,40 @@ const NADA = [
   'pengamatan iseng tentang hal sepele yang ternyata menarik',
 ];
 const HARI = 864e5;
+
+// ---------- waktu tayang: agar hari/tanggal/bagian hari di tulisan cocok dengan waktu posting ----------
+const NAMA_HARI = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+const NAMA_BULAN = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+// ts: "YYYY-MM-DD HH:MM" (WIB)
+function infoWaktu(ts) {
+  const [y, m, d] = ts.slice(0, 10).split('-').map(Number);
+  const jam = +ts.slice(11, 13);
+  const h = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+  const bagian = jam < 4 ? 'dini hari' : jam < 11 ? 'pagi' : jam < 15 ? 'siang' : jam < 18 ? 'sore' : 'malam';
+  return {
+    hari: NAMA_HARI[h], kemarin: NAMA_HARI[(h + 6) % 7], besok: NAMA_HARI[(h + 1) % 7],
+    bulan: NAMA_BULAN[m - 1], bulanLalu: NAMA_BULAN[(m + 10) % 12], bulanDepan: NAMA_BULAN[m % 12],
+    teks: `${NAMA_HARI[h]}, ${d} ${NAMA_BULAN[m - 1]} ${y}, sekitar pukul ${ts.slice(11, 16)} WIB (${bagian}, ${h === 0 || h === 6 ? 'akhir pekan' : 'hari kerja'})`,
+  };
+}
+// nama hari/bulan di tulisan yang tidak cocok dengan waktu tayang (kemarin/hari ini/besok, bulan lalu/ini/depan masih wajar)
+function waktuJanggal(teks, ts) {
+  const w = infoWaktu(ts);
+  const okHari = [w.hari, w.kemarin, w.besok];
+  const okBulan = [w.bulan, w.bulanLalu, w.bulanDepan];
+  const kena = new Set();
+  // "Minggu" sebagai nama hari hanya bila huruf besar dan bukan "Minggu lalu/ini/depan/kemarin"
+  for (const m of String(teks).matchAll(/\b(Senin|Selasa|Rabu|Kamis|Jum'?at|Sabtu|Minggu)\b(?!\s+(lalu|ini|depan|kemarin))/gi)) {
+    const n = m[1][0].toUpperCase() + m[1].slice(1).toLowerCase().replace("'", '');
+    if (n === 'Minggu' && m[1][0] !== 'M') continue;
+    if (!okHari.includes(n)) kena.add(m[1]);
+  }
+  for (const m of String(teks).matchAll(new RegExp(`\\b(${NAMA_BULAN.join('|')})\\b`, 'gi'))) {
+    const n = m[1][0].toUpperCase() + m[1].slice(1).toLowerCase();
+    if (!okBulan.includes(n)) kena.add(m[1]);
+  }
+  return [...kena];
+}
 const MAKS_JADWAL = 10;
 // "7:00, 12:00 19:00" -> "07:00,12:00,19:00" (urut, unik); null bila ada jam yang salah
 function rapikanJadwal(teks) {
@@ -578,7 +612,9 @@ Balas HANYA dengan teks caption.`);
     return JSON.parse(s.slice(a, b + 1));
   }
 
-  async function tulis(topikPaksa, utas) {
+  async function tulis(topikPaksa, utas, waktuTayang) {
+    const tayang = waktuTayang || wib().slice(0, 16);
+    const waktu = infoWaktu(tayang);
     const topik = pilihTopik(topikPaksa);
     const panjang = utas || pilihPanjang();
     let konteks = '';
@@ -599,6 +635,9 @@ ${st.set.gaya}
 
 ${ATURAN}`;
     const user = `Topik: ${topik}
+Waktu tayang: ${waktu.teks}.
+Bila menyebut hari, tanggal, bulan, jam, atau bagian hari (pagi, siang, sore, malam, weekend, "barusan"), harus cocok dengan waktu tayang itu. Cerita boleh terjadi sebelumnya ("tadi pagi", "kemarin ${waktu.kemarin}") asal masuk akal.
+Jangan menyebut tanggal tertentu, hari libur, atau momen musiman (gajian, puasa, Lebaran, Natal, tahun baru, musim hujan) kecuali memang cocok dengan waktu tayang.
 Nada kali ini: ${nada}. ${solo} ${asn} Fokus hanya pada topik ini, jangan dicampur istilah atau perumpamaan dari topik lain.
 Jumlah bagian: tepat ${panjang} (setiap bagian maksimal 480 karakter).${panjang > 1 ? `
 Ini utas bercerita: isi "bagian" dengan TEPAT ${panjang} elemen; elemen pertama jadi postingan utama, sisanya diposting sebagai balasan bersambung.
@@ -630,18 +669,26 @@ Balas HANYA dengan JSON: {"hook":"baris pertama","tag":"AI Threads","bagian":["t
         if (b3.length > bagian.length) { j = { ...j3, tag: j3.tag || j.tag }; bagian = b3; }
       } catch { /* pakai draf yang ada */ }
     }
+    const janggal = waktuJanggal(bagian.join('\n'), tayang);
+    if (janggal.length) { // satu kali tulis ulang dengan waktu yang benar
+      try {
+        const j4 = bacaJson(await llmText(system, `${user}\n\nDraf sebelumnya:\n${JSON.stringify({ hook: j.hook, bagian })}\n\nDraf itu menyebut ${janggal.map((k) => `"${k}"`).join(', ')}, padahal waktu tayangnya ${waktu.teks}. Perbaiki bagian yang menyebut waktu agar cocok (atau hapus penyebutannya), isi lain tetap sama. Balas HANYA dengan JSON yang sama formatnya.`));
+        const b4 = (Array.isArray(j4.bagian) ? j4.bagian : []).map(rapikan).filter(Boolean);
+        if (b4.length && waktuJanggal(b4.join('\n'), tayang).length < janggal.length) { j = { ...j4, tag: j4.tag || j.tag }; bagian = b4; }
+      } catch { /* pakai draf yang ada */ }
+    }
     bagian = bagian.flatMap(potong).slice(0, MAKS_UTAS);
     if (!bagian.length) throw new Error('Draf kosong. Coba /buat lagi.');
     const tag = rapikanTag(j.tag) || TAG_PILAR[topik] || '';
     const hook = String(j.hook || bagian[0].split('\n')[0]).slice(0, 120);
     const affiliate = await captionAffiliate(hook);
-    return { topik, tag, nada, utas: panjang, hook, bagian, affiliate, dibuat: wib() };
+    return { topik, tag, nada, utas: panjang, hook, bagian, affiliate, tayang, dibuat: wib() };
   }
 
   // tulisan untuk jadwal: pakai topik titipan (/nanti) sekali, lalu kembali normal
-  async function tulisTerjadwal() {
+  async function tulisTerjadwal(waktuTayang) {
     const titip = st.topikNanti;
-    const d = await tulis(titip || null);
+    const d = await tulis(titip || null, undefined, waktuTayang);
     if (titip) { st.topikNanti = ''; simpan(); }
     return d;
   }
@@ -960,7 +1007,7 @@ Perintah:
           await say(chat, `Oke, diposting ${st.draf.slotKey.slice(0, 10) === sekarang().tanggal ? 'hari ini' : 'besok'} jam ${st.draf.slot} WIB.`);
         } else if (aksi === 'redo') {
           await say(chat, 'Menulis ulang...');
-          st.draf = await tulis(st.draf.topik, st.draf.utas); simpan();
+          st.draf = { ...(await tulis(st.draf.topik, st.draf.utas, st.draf.slotKey)), ...(st.draf.slotKey ? { slot: st.draf.slot, slotKey: st.draf.slotKey } : {}) }; simpan();
           await kirimDraf(chat, st.draf);
         } else if (aksi === 'skip') {
           if (st.draf.slotKey) st.slotSelesai = st.draf.slotKey;
@@ -1005,7 +1052,7 @@ Perintah:
           slot = { jam, key };
           if ((st.gagal[key] || 0) >= 3) return;
           st.drafSlot = key; simpan();
-          st.draf = { ...(await tulisTerjadwal()), slot: jam, slotKey: key }; simpan();
+          st.draf = { ...(await tulisTerjadwal(key)), slot: jam, slotKey: key }; simpan();
           await kirimDraf(owner, st.draf, `Draf untuk jam ${jam}. `);
           return;
         }
