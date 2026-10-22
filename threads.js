@@ -3,6 +3,7 @@
 
 const path = require('path');
 const buatAnalisis = require('./analisis');
+const horor = require('./horor');
 const crypto = require('crypto');
 
 const PILAR_UMUM = [
@@ -40,6 +41,8 @@ const KLISE = [
   'healing', 'produktivitas', 'mindset', 'insight', 'game changer', 'level up', 'upgrade diri', 'versi terbaik',
   'memang benar', 'tentu saja', 'sangatlah', 'merupakan', 'senantiasa', 'tak lain', 'tidak lain adalah',
 ];
+// Threads menandai postingan yang menyinggung menyakiti diri, termasuk yang bercanda; jangan disebut sama sekali
+const RAMBU_DIRI = `Jangan pernah menyebut atau menyinggung bunuh diri, menyakiti diri, atau keinginan mati/menghilang, termasuk sebagai hiperbola, lelucon, atau curhat ("mending mati aja", "pengen ngilang dari bumi", "capek hidup").`;
 const ATURAN = `Aturan menulis agar terasa ditulis manusia, bukan AI:
 - Baris pertama langsung masuk ke hal yang spesifik (kejadian, benda, angka kecil, kalimat orang). Maksimal 12 kata, jujur, bukan clickbait.
 - Tulis dari pengalaman atau pengamatan konkret: tempat, jam, benda, suara, percakapan pendek. Hindari kalimat umum yang bisa ditulis siapa saja.
@@ -56,7 +59,8 @@ const ATURAN = `Aturan menulis agar terasa ditulis manusia, bukan AI:
 Rambu konten (wajib):
 - Tanpa politik, pemilu, partai, atau tokoh politik. Tanpa SARA.
 - Tanpa kritik terhadap instansi, atasan, atau rekan kerja tertentu. Tanpa data atau informasi internal kantor. Tanpa keluhan angka gaji atau tunjangan.
-- Kesehatan dan kesehatan mental: informasi umum dan empatik saja. Tanpa diagnosis, tanpa dosis obat atau suplemen, tanpa detail tentang menyakiti diri. Bila relevan, sarankan bicara dengan tenaga profesional.
+- Kesehatan dan kesehatan mental: informasi umum dan empatik saja. Tanpa diagnosis, tanpa dosis obat atau suplemen. Bila relevan, sarankan bicara dengan tenaga profesional.
+- ${RAMBU_DIRI}
 - Jangan mengarang fakta, angka, atau nama produk. Kalau ragu, tulis secara umum.`;
 
 const NADA = [
@@ -68,6 +72,34 @@ const NADA = [
   'pengamatan iseng tentang hal sepele yang ternyata menarik',
 ];
 const HARI = 864e5;
+
+// ---------- niche horor (/niche horor): cerita seram/menegangkan, diceritakan ulang dari Reddit ----------
+const GAYA_HOROR = `Bahasa Indonesia sehari-hari seperti netizen yang lagi cerita horor di Threads: santai, mengalir, apa adanya, seperti cerita ke teman malam-malam.
+Boleh huruf kecil semua. Boleh singkatan chat yang wajar ("gak", "udah", "yg", "aja", "pas") asal tidak berlebihan.
+Seramnya dibangun dari detail kecil yang konkret dan tempo cerita: jam, suara, benda yang pindah, kalimat orang, hal yang janggal tapi sepele. Bukan dari kata sifat yang ditumpuk.
+Jangan lebay: tanpa huruf kapital semua, tanpa tanda seru beruntun, tanpa "merinding parah", "bulu kuduk berdiri", "darahku membeku", "sumpah demi apapun", "gak nyangka banget", "plot twist", "POV", "a thread", "🧵".
+Komentar pribadi penulis boleh sesekali dan pendek, seperti orang yang meneruskan cerita ("bagian ini yg bikin aku mikir", "jujur ini yg paling ganggu").
+Dilarang memakai umpatan atau plesetan umpatan.`;
+const NADA_HOROR = [
+  'cerita ke teman tongkrongan malam-malam, pelan dan tenang',
+  'ngerangkum cerita yang barusan dibaca, sesekali komentar pendek',
+  'padat dan tegang, kalimat pendek-pendek',
+  'datar dan apa adanya, seramnya dibiarkan dari kejadiannya sendiri',
+];
+const ATURAN_HOROR = `Aturan menulis agar terasa ditulis manusia, bukan AI:
+- Baris pertama langsung masuk ke situasi yang spesifik dan bikin penasaran. Maksimal 12 kata, bukan clickbait.
+- Panjang kalimat dan paragraf tidak seragam. Boleh satu kalimat pendek berdiri sendiri.
+- Jangan pakai pola khas AI: "bukan X, tapi Y", rangkaian tiga hal berirama, pertanyaan retoris di awal, "Hasilnya?" sebelum pengungkapan, pesan moral di akhir.
+- Tanpa hashtag. Emoji paling banyak satu, lebih sering tidak ada. Tanpa daftar bernomor, huruf tebal, atau tanda pisah panjang (—).
+- Jangan memakai kata/frasa ini: ${KLISE.map((k) => `"${k}"`).join(', ')}.
+
+Rambu konten (wajib, mengikuti aturan komunitas Threads):
+- ${RAMBU_DIRI} Bila bahan cerita menyinggungnya, buang bagian itu.
+- Tanpa kekerasan grafis atau sadis (darah, luka, mayat dijelaskan detail), tanpa konten seksual, tanpa anak atau hewan yang disakiti.
+- Jangan mengajak atau mengajari pembaca mencoba ritual, pemanggilan arwah, atau tantangan berbahaya.
+- Tanpa politik dan SARA. Jangan merendahkan agama, kepercayaan, atau daerah tertentu. Jangan menuduh orang, tempat, atau usaha nyata yang bisa dikenali.
+- Jangan mengaku sebagai pengalaman penulis sendiri kalau bukan. Jangan mengarang kejadian, korban, atau fakta baru.`;
+const TAG_HOROR = 'Horror Threads';
 
 // ---------- waktu tayang: agar hari/tanggal/bagian hari di tulisan cocok dengan waktu posting ----------
 const NAMA_HARI = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
@@ -216,7 +248,7 @@ const JADWAL_BAWAAN = { 1: '07:00,12:00,19:00', 2: '08:00,13:00,20:00' };
 const GAYA_SLENGEKAN = `Bahasa Indonesia gaul sehari-hari: santai, lucu, slengekan, seperti orang yang hobi menertawakan hidupnya sendiri di media sosial. Mudah dipahami siapa saja.
 Lucunya datang dari kejadian dan detail yang spesifik, reaksi yang jujur, dan timing kalimat. Bukan dari lelucon template, plesetan yang dipaksakan, atau punchline yang dijelaskan ulang.
 Boleh huruf kecil semua. Boleh singkatan chat yang wajar ("gak", "udah", "aja", "banget", "yg") asal tidak berlebihan. "wkwk" paling banyak sekali dan tidak di setiap postingan.
-Kata ganti "aku", atau tanpa kata ganti. Boleh hiperbola yang jelas bercanda dan self-roasting, tapi tidak merendahkan orang lain, kelompok, atau fisik orang.
+Kata ganti "aku", atau tanpa kata ganti. Boleh hiperbola yang jelas bercanda dan self-roasting, tapi tidak merendahkan orang lain, kelompok, atau fisik orang, dan tidak pernah tentang mati, menyakiti diri, atau ingin menghilang.
 Penulis tinggal di Solo: sesekali boleh satu selipan rasa Solo ("og", "lho", "wae", hik, wedangan, nasi liwet), tidak wajib.
 Hindari gaya yang terasa template: "POV:", "plot twist", "no debat", "bestie", "slay", "auto", "spill", dan kata gaul lain yang terdengar dipaksakan.
 Dilarang memakai umpatan atau plesetan umpatan.`;
@@ -274,6 +306,7 @@ function buatAkun(deps, cfg) {
     analisisAuto: false,
     affiliate: envSendiri('AFFILIATE').replace(/\\n/g, '\n'),
     affiliateOff: false,
+    niche: /horor|horror|seram/i.test(envSendiri('NICHE')) ? 'horor' : 'umum',
   });
   const s0 = readJson(F, {});
   const st = {
@@ -294,6 +327,7 @@ function buatAkun(deps, cfg) {
     analisis: s0.analisis || {},
     affIdx: s0.affIdx || 0, // giliran produk affiliate berikutnya
     affCek: s0.affCek || {}, // hasil cek link: { link: { s: ok|mati|ragu, t } }
+    hororDipakai: s0.hororDipakai || [], // id postingan Reddit yang sudah diceritakan ulang
   };
   st.set.panjang = rapikanPanjang(st.set.panjang) || bawaan().panjang;
   const simpan = () => writeJson(F, st);
@@ -612,11 +646,74 @@ Balas HANYA dengan teks caption.`);
     return JSON.parse(s.slice(a, b + 1));
   }
 
+  // prompt niche horor: cerita Reddit diceritakan ulang (atau legenda urban bila Reddit tidak bisa diakses),
+  // pembuka boleh nyambung ringan dengan suasana hari ini dari judul berita
+  async function promptHoror(topikPaksa, panjang, waktu) {
+    // topik titipan dari /analisis berbentuk label topik: "horor: r/LetsNotMeet", "horor: legenda", "horor: <tema>"
+    const t = String(topikPaksa || '').replace(/^horor:\s*/i, '').trim();
+    const minta = /^r\/(\w+)/i.exec(t);
+    const legenda = /^legenda$/i.test(t);
+    const tema = t && !minta && !legenda ? t : '';
+    const cerita = tema || legenda ? null : await horor.ambilCerita(st.hororDipakai, minta?.[1] || '');
+    const berita = await horor.beritaHariIni();
+    const nada = NADA_HOROR[Math.floor(Math.random() * NADA_HOROR.length)];
+    const hindari = st.riwayat.slice(-10).map((r) => `- ${r.hook}`).join('\n') || '- (belum ada)';
+    let bahan, topik;
+    if (cerita) {
+      topik = `horor: r/${cerita.sub}`;
+      bahan = `Bahan cerita: postingan Reddit r/${cerita.sub} karya orang lain, berbahasa Inggris${cerita.fiksi ? ' (subreddit ini berisi cerita fiksi yang ditulis seolah kejadian nyata)' : ''}.
+Judul: ${cerita.judul}
+Isi:
+${cerita.isi.slice(0, 7000)}
+
+Tugas: ceritakan ulang cerita ini dalam bahasa Indonesia, seperti netizen Indonesia yang nemu cerita seram lalu menceritakannya ke followers-nya.
+- Ini cerita orang lain, bukan pengalaman penulis akun. Buka dengan wajar dan bervariasi (mis. "nemu cerita di reddit...", "ada yg cerita di forum luar..."), lalu ceritakan dengan menyebut pencerita aslinya "OP", "orangnya", atau "dia", atau pakai sudut pandang OP setelah pembuka itu.
+- Setia pada inti cerita: kejadian, urutan, dan akhirnya sesuai bahan. Boleh meringkas dan membuang bagian bertele-tele, tapi jangan menambah kejadian, korban, atau detail seram baru. Lokasi tetap sesuai cerita asli (jangan dipindah ke Indonesia); istilah atau satuan boleh disesuaikan agar mudah dipahami.${cerita.fiksi ? '\n- Karena ini fiksi, sebut dengan wajar sekali saja bahwa ini cerita fiksi/creepypasta, jangan diklaim kejadian nyata.' : '\n- Jangan menyatakan pasti nyata; cukup "katanya", "menurut OP" bila perlu.'}
+- Akhiri bagian terakhir dengan baris sumber singkat: "sumber: r/${cerita.sub}".`;
+      st.hororDipakai = [...st.hororDipakai, cerita.id].slice(-300); simpan();
+    } else if (tema) {
+      topik = `horor: ${tema}`;
+      bahan = `Tema: ${tema}
+Tugas: tulis cerita pendek yang menegangkan atau seram dengan tema itu. Ini fiksi karangan, jadi jangan diklaim kejadian nyata atau pengalaman penulis; tandai dengan wajar sekali saja (mis. "cerita fiksi" di pembuka, atau "(fiksi)" di akhir). Jangan memakai nama orang, tempat usaha, atau kejadian nyata.`;
+    } else {
+      topik = 'horor: legenda';
+      bahan = `Tugas: ceritakan satu legenda urban, cerita rakyat, atau mitos seram dari Indonesia yang sudah dikenal luas dan beredar dari mulut ke mulut (pilih yang belum ada di daftar hook di bawah).
+Ceritakan sebagai cerita yang beredar ("konon", "katanya", "cerita orang-orang"), bukan pengalaman penulis. Jangan mengarang asal-usul, tanggal, atau nama korban; tulis versi yang umum diketahui saja. Jangan merendahkan daerah atau kepercayaan setempat.`;
+    }
+    const kini = berita.length ? `Judul berita populer di Indonesia hari ini (hanya untuk suasana):
+${berita.map((b) => `- ${b}`).join('\n')}
+` : '';
+    const system = `Kamu menulis postingan Threads untuk akun yang rutin membagikan cerita horor dan menegangkan.
+Gaya bahasa:
+${GAYA_HOROR}
+
+${ATURAN_HOROR}`;
+    const user = `${bahan}
+
+Waktu tayang: ${waktu.teks}.
+${kini}Boleh (tidak wajib) membuka dengan satu kalimat yang nyambung ringan dengan suasana saat ini: waktu tayang (mis. "malam jumat" hanya bila tayang Kamis malam), cuaca atau musim, libur, atau hal netral yang lagi ramai (film, tren, acara).
+Dilarang mengaitkan cerita dengan bencana, kecelakaan, kriminal, kematian, atau korban nyata, juga tokoh nyata, politik, dan agama. Jangan menambah fakta tentang berita itu di luar judulnya. Kalau tidak ada yang pas, abaikan berita dan langsung masuk ke cerita.
+Nada kali ini: ${nada}.
+Jumlah bagian: tepat ${panjang} (setiap bagian maksimal 480 karakter).${panjang > 1 ? `
+Ini utas bercerita: isi "bagian" dengan TEPAT ${panjang} elemen; elemen pertama jadi postingan utama, sisanya balasan bersambung.
+Bagian 1 membuka dengan situasi yang bikin penasaran dan berhenti di titik yang membuat orang ingin membuka balasannya.
+Bagian tengah melanjutkan kejadiannya tanpa mengulang. Bagian terakhir menutup cerita apa adanya (kejadian akhir atau kalimat menggantung), bukan ceramah.
+Jangan beri nomor seperti "1/3" atau "(bersambung)".` : ''}
+Hook yang sudah pernah dipakai, jangan diulang atau dibuat mirip:
+${hindari}
+
+Isi juga "tag": satu topik Threads berbahasa Inggris "<Nama> Threads", misalnya "Horror Threads", "Paranormal Threads", "Creepy Threads", "Scary Stories Threads". Tanpa titik, tanpa "&", maksimal 50 karakter.
+
+Balas HANYA dengan JSON: {"hook":"baris pertama","tag":"Horror Threads","bagian":["teks bagian 1"]}`;
+    return { system, user, topik, nada, sumber: cerita?.link || '' };
+  }
+
   async function tulis(topikPaksa, utas, waktuTayang) {
     const tayang = waktuTayang || wib().slice(0, 16);
     const waktu = infoWaktu(tayang);
-    const topik = pilihTopik(topikPaksa);
     const panjang = utas || pilihPanjang();
+    if (st.set.niche === 'horor') return selesaikan(await promptHoror(topikPaksa, panjang, waktu), panjang, tayang, waktu);
+    const topik = pilihTopik(topikPaksa);
     let konteks = '';
     if (/AI|teknologi|tech/i.test(topik)) {
       try {
@@ -652,6 +749,12 @@ Isi juga "tag": satu topik Threads yang paling relevan dengan isi tulisan, dalam
 misalnya "AI Threads", "Tech Threads", "Gym Threads", "Fitness Threads", "Mental Health Threads", "Health Threads", "Work Life Threads", "Daily Life Threads", "Book Threads", "Food Threads". Tanpa titik, tanpa "&", maksimal 50 karakter.
 
 Balas HANYA dengan JSON: {"hook":"baris pertama","tag":"AI Threads","bagian":["teks bagian 1"]}`;
+    return selesaikan({ system, user, topik, nada }, panjang, tayang, waktu);
+  }
+
+  // tulis draf dari prompt, lalu perbaiki: frasa klise, jumlah bagian, waktu yang janggal, dan rambu konten
+  async function selesaikan({ system, user, topik, nada, sumber }, panjang, tayang, waktu) {
+    const hororNiche = topik.startsWith('horor:');
     let j = bacaJson(await llmText(system, user));
     let bagian = (Array.isArray(j.bagian) ? j.bagian : []).map(rapikan).filter(Boolean);
     const kena = cariKlise(bagian.join('\n'));
@@ -669,7 +772,8 @@ Balas HANYA dengan JSON: {"hook":"baris pertama","tag":"AI Threads","bagian":["t
         if (b3.length > bagian.length) { j = { ...j3, tag: j3.tag || j.tag }; bagian = b3; }
       } catch { /* pakai draf yang ada */ }
     }
-    const janggal = waktuJanggal(bagian.join('\n'), tayang);
+    // cerita horor yang diceritakan ulang menyebut hari kejadian aslinya: tidak dicek
+    const janggal = hororNiche ? [] : waktuJanggal(bagian.join('\n'), tayang);
     if (janggal.length) { // satu kali tulis ulang dengan waktu yang benar
       try {
         const j4 = bacaJson(await llmText(system, `${user}\n\nDraf sebelumnya:\n${JSON.stringify({ hook: j.hook, bagian })}\n\nDraf itu menyebut ${janggal.map((k) => `"${k}"`).join(', ')}, padahal waktu tayangnya ${waktu.teks}. Perbaiki bagian yang menyebut waktu agar cocok (atau hapus penyebutannya), isi lain tetap sama. Balas HANYA dengan JSON yang sama formatnya.`));
@@ -677,12 +781,23 @@ Balas HANYA dengan JSON: {"hook":"baris pertama","tag":"AI Threads","bagian":["t
         if (b4.length && waktuJanggal(b4.join('\n'), tayang).length < janggal.length) { j = { ...j4, tag: j4.tag || j.tag }; bagian = b4; }
       } catch { /* pakai draf yang ada */ }
     }
+    const langgar = horor.cekAman(bagian.join('\n'));
+    if (langgar.length) { // satu kali tulis ulang tanpa bagian yang melanggar; bila masih ada, draf ditolak
+      try {
+        const j5 = bacaJson(await llmText(system, `${user}\n\nDraf sebelumnya:\n${JSON.stringify({ hook: j.hook, bagian })}\n\nDraf itu melanggar rambu konten: ${langgar.join(', ')}. Tulis ulang tanpa menyebut atau menyinggung hal itu sama sekali (buang bagiannya, jangan diganti sinonim atau kiasan). Balas HANYA dengan JSON yang sama formatnya.`));
+        const b5 = (Array.isArray(j5.bagian) ? j5.bagian : []).map(rapikan).filter(Boolean);
+        if (b5.length) { j = { ...j5, tag: j5.tag || j.tag }; bagian = b5; }
+      } catch { /* dicek lagi di bawah */ }
+      const sisa = horor.cekAman(bagian.join('\n'));
+      if (sisa.length) throw new Error(`Draf ditolak filter rambu konten (${sisa.join(', ')}), tidak diposting.`);
+    }
     bagian = bagian.flatMap(potong).slice(0, MAKS_UTAS);
     if (!bagian.length) throw new Error('Draf kosong. Coba /buat lagi.');
-    const tag = rapikanTag(j.tag) || TAG_PILAR[topik] || '';
+    const tag = rapikanTag(j.tag) || TAG_PILAR[topik] || (hororNiche ? TAG_HOROR : '');
     const hook = String(j.hook || bagian[0].split('\n')[0]).slice(0, 120);
-    const affiliate = await captionAffiliate(hook);
-    return { topik, tag, nada, utas: panjang, hook, bagian, affiliate, tayang, dibuat: wib() };
+    let affiliate = await captionAffiliate(hook);
+    if (affiliate && horor.cekAman(affiliate).length) affiliate = ''; // caption bermasalah: tanpa balasan affiliate
+    return { topik, tag, nada, utas: panjang, hook, bagian, affiliate, tayang, dibuat: wib(), ...(sumber ? { sumber } : {}) };
   }
 
   // tulisan untuk jadwal: pakai topik titipan (/nanti) sekali, lalu kembali normal
@@ -743,7 +858,7 @@ Balas HANYA dengan JSON: {"hook":"baris pertama","tag":"AI Threads","bagian":["t
     const r = st.riwayat.at(-1);
     const tombol = r?.ids?.length ? { inline_keyboard: [[{ text: '🗑 Hapus dari Threads', callback_data: `${CB}del:${r.ids[0]}` }]] } : undefined;
     const aff = draf.affiliate ? (draf.affiliateGagal ? `\n\n⚠️ Balasan affiliate gagal diposting: ${draf.affiliateGagal}` : `\n\n[balasan affiliate]\n${draf.affiliate}`) : '';
-    const teks = `${awalan} (${draf.topik}${n > 1 ? `, ${n} utas` : ''}):${draf.tag ? `\nTopik Threads: ${draf.tag}` : ''}${link ? `\n${link}` : ''}\n\n${isi}${aff}`;
+    const teks = `${awalan} (${draf.topik}${n > 1 ? `, ${n} utas` : ''}):${draf.tag ? `\nTopik Threads: ${draf.tag}` : ''}${link ? `\n${link}` : ''}${draf.sumber ? `\nBahan: ${draf.sumber}` : ''}\n\n${isi}${aff}`;
     if (teks.length <= 4000) return tg('sendMessage', { chat_id: chat, text: labelAkun() + teks, ...(tombol ? { reply_markup: tombol } : {}) });
     await say(chat, teks);
     if (tombol) await tg('sendMessage', { chat_id: chat, text: labelAkun() + 'Postingan di atas:', reply_markup: tombol });
@@ -761,7 +876,7 @@ Balas HANYA dengan JSON: {"hook":"baris pertama","tag":"AI Threads","bagian":["t
   async function kirimDraf(chat, draf, awalan = '') {
     const n = draf.bagian.length;
     const isi = n > 1 ? draf.bagian.map((b, i) => `[${i + 1}/${n}]\n${b}`).join('\n\n') : draf.bagian[0];
-    const judul = `${awalan}Draf Threads (${draf.topik})${n > 1 ? `, ${n} utas` : ''}:${draf.tag ? `\nTopik Threads: ${draf.tag}` : ''}\n\n`;
+    const judul = `${awalan}Draf Threads (${draf.topik})${n > 1 ? `, ${n} utas` : ''}:${draf.tag ? `\nTopik Threads: ${draf.tag}` : ''}${draf.sumber ? `\nBahan: ${draf.sumber}` : ''}\n\n`;
     const aff = draf.affiliate ? `\n\n[balasan affiliate]\n${draf.affiliate}` : '';
     const tombol = { inline_keyboard: [
       [{ text: 'Posting sekarang', callback_data: `${CB}post` }, { text: `Jadwalkan ${draf.slot || slotBerikutnya()}`, callback_data: `${CB}sched` }],
@@ -793,6 +908,7 @@ Balas HANYA dengan JSON: {"hook":"baris pertama","tag":"AI Threads","bagian":["t
     return `Threads
 Mode: ${st.set.mode}${st.set.jeda ? ' (DIJEDA)' : ''}
 Jadwal: ${daftarJadwal().join(', ')} WIB (${daftarJadwal().length}x sehari)
+Niche: ${st.set.niche === 'horor' ? 'horor (cerita seram/menegangkan dari Reddit, diceritakan ulang; /topik tidak dipakai)' : 'umum'}
 Topik: ${st.set.topik}${st.topikNanti ? `\nTopik titipan untuk jadwal berikutnya: ${st.topikNanti}` : ''}
 Panjang: ${st.set.panjang} bagian
 Affiliate: ${affiliateAktif() ? `ON (${daftarProduk().length} link bergiliran, caption AI)` : daftarProduk().length ? `OFF (${daftarProduk().length} link tersimpan)` : 'OFF'}
@@ -810,6 +926,7 @@ Perintah:
 /mode otomatis (langsung posting, preview dikirim ke sini) | setuju (draf disetujui dulu)
 /topik acak|nomor|teks, /panjang 3 atau 2-3 (acak), /gaya teks|reset, /persona teks|reset
 /jeda, /lanjut, /token TOKEN_BARU
+/niche horor|umum - ganti niche akun ini (horor: cerita seram dari Reddit tiap hari, diceritakan ulang ala netizen)
 /affiliate - link affiliate (bulk) jadi balasan terakhir tiap postingan, caption dari AI
 /analisis - views, capaian, penyebab, saran | /analisis auto on|off | /terapkan nomor|semua`;
   }
@@ -818,7 +935,7 @@ Perintah:
     const [c, ...rest] = text.split(/\s+/);
     const cmd = c.toLowerCase().split('@')[0];
     const arg = rest.join(' ').trim();
-    const daftar = ['/threads', '/jadwal', '/mode', '/topik', '/panjang', '/gaya', '/persona', '/buat', '/dadakan', '/nanti', '/posting', '/jeda', '/lanjut', '/token', '/analisis', '/terapkan', '/affiliate'];
+    const daftar = ['/threads', '/jadwal', '/mode', '/topik', '/panjang', '/gaya', '/persona', '/buat', '/dadakan', '/nanti', '/posting', '/jeda', '/lanjut', '/token', '/analisis', '/terapkan', '/affiliate', '/niche'];
     if (!daftar.includes(cmd)) return false;
     if (!AKTIF) { await say(chat, 'Fitur Threads tidak aktif di bot ini.'); return true; }
 
@@ -895,7 +1012,15 @@ Perintah:
         await say(chat, `${gantiSemua ? 'Daftar diganti' : 'Ditambahkan'}: ${muat.length} link${baru.length - tambah.length ? `, ${baru.length - tambah.length} duplikat dilewati` : ''}${dinamai ? `, ${dinamai} nama diperbarui` : ''}${lewatBatas ? `, ${lewatBatas} tidak masuk (maksimal ${MAKS_AFFILIATE})` : ''}. Total ${lama.length + muat.length} link, affiliate ON.${rusak.length ? `\n❌ ${rusak.length} link mati, tidak dimasukkan:\n${rusak.map((p) => p.link).join('\n')}` : ''}${tanpaNama ? `\n${tanpaNama} link tanpa nama produk: caption-nya dibuat umum. Agar lebih pas, kirim ulang dengan format: Nama produk | link` : ''}\nLihat daftar: /affiliate · contoh caption: /affiliate tes`);
       }
     }
-    else if (cmd === '/token') {
+    else if (cmd === '/niche') {
+      const a = arg.toLowerCase();
+      if (/^(horor|horror|seram)$/.test(a) || a === 'umum') {
+        st.set.niche = a === 'umum' ? 'umum' : 'horor'; simpan();
+        await say(chat, st.set.niche === 'horor'
+          ? `Niche akun ini: horor. Tiap posting mengambil cerita seram/menegangkan pilihan minggu ini dari Reddit (${horor.SUB_HOROR.map((s) => `r/${s}`).join(', ')}), diceritakan ulang ala netizen dengan sumber di akhir. Pembuka boleh nyambung dengan suasana hari ini. Bila Reddit tidak bisa diakses, pakai legenda urban Indonesia.\n/dadakan tema = cerita fiksi bertema itu (ditandai fiksi).\nSaran: cerita butuh ruang, coba /panjang 3-5.`
+          : 'Niche akun ini: umum (topik dari daftar pilar, /topik berlaku lagi).');
+      } else await say(chat, `Niche sekarang: ${st.set.niche}.\nGanti: /niche horor atau /niche umum`);
+    } else if (cmd === '/token') {
       if (!arg) await say(chat, `Token: ${infoToken()}\n\nUntuk memperbarui, buat token baru di dashboard Meta lalu kirim:\n/token TOKEN_BARU\nPesan berisi token akan langsung kuhapus dari chat.`);
       else await pasangToken(chat, arg, msgId);
     } else if (cmd === '/jadwal') {
@@ -972,6 +1097,10 @@ Perintah:
     baris.push(`ℹ️ Jadwal ${daftarJadwal().join(', ')} WIB, mode ${st.set.mode}${st.set.jeda ? ' (DIJEDA)' : ''}, terakhir posting ${st.terakhirPosting || '-'}`);
     baris.push(cfg.adaCadangan() ? '✅ Cadangan token/pengaturan ter-pin di chat' : 'ℹ️ Belum ada cadangan ter-pin (dibuat otomatis saat ada token/pengaturan dari Telegram)');
     let draf = null;
+    if (lengkap && st.set.niche === 'horor') {
+      const c = await horor.ambilCerita(st.hororDipakai).catch(() => null);
+      baris.push(c ? `✅ Sumber horor Reddit: ${horor._cache.pool.length} cerita siap (contoh: r/${c.sub})` : '⚠️ Reddit tidak bisa diakses dari server ini; niche horor memakai legenda urban Indonesia');
+    }
     if (lengkap) {
       const t0 = Date.now();
       try {
