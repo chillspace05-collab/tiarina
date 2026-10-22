@@ -244,7 +244,7 @@ function envAkun(n, k) {
 }
 const JADWAL_BAWAAN = { 1: '07:00,12:00,19:00', 2: '08:00,13:00,20:00' };
 
-// Bawaan khusus per akun (dipakai bila THREADSn_X kosong). Akun 2: @jampulang.05, gaya santai-lucu-slengekan.
+// Bawaan khusus per akun (dipakai bila THREADSn_X kosong). Akun 2: @jampulang.05, niche horor (cerita Reddit), 3-5 bagian.
 const GAYA_SLENGEKAN = `Bahasa Indonesia gaul sehari-hari: santai, lucu, slengekan, seperti orang yang hobi menertawakan hidupnya sendiri di media sosial. Mudah dipahami siapa saja.
 Lucunya datang dari kejadian dan detail yang spesifik, reaksi yang jujur, dan timing kalimat. Bukan dari lelucon template, plesetan yang dipaksakan, atau punchline yang dijelaskan ulang.
 Boleh huruf kecil semua. Boleh singkatan chat yang wajar ("gak", "udah", "aja", "banget", "yg") asal tidak berlebihan. "wkwk" paling banyak sekali dan tidak di setiap postingan.
@@ -255,7 +255,8 @@ Dilarang memakai umpatan atau plesetan umpatan.`;
 const AKUN_BAWAAN = {
   2: {
     jadwal: '07:15,09:20,11:45,13:30,15:40,17:55,20:10,22:05',
-    panjang: '2-5',
+    panjang: '3-5',
+    niche: 'horor', // sejak 2026-10-22: cerita horor dari Reddit
     gaya: GAYA_SLENGEKAN,
     persona: 'Pekerja kantoran di Solo, niat gym tinggi tapi sering kalah sama kasur, suka ngulik AI dan gadget, dan hobi menertawakan kejadian konyol dalam hidupnya sendiri.',
     nada: [
@@ -306,7 +307,7 @@ function buatAkun(deps, cfg) {
     analisisAuto: false,
     affiliate: envSendiri('AFFILIATE').replace(/\\n/g, '\n'),
     affiliateOff: false,
-    niche: /horor|horror|seram/i.test(envSendiri('NICHE')) ? 'horor' : 'umum',
+    niche: /horor|horror|seram/i.test(pakai('NICHE')) ? 'horor' : 'umum',
   });
   const s0 = readJson(F, {});
   const st = {
