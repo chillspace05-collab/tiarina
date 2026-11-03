@@ -135,6 +135,8 @@ function waktuJanggal(teks, ts) {
   return [...kena];
 }
 const MAKS_JADWAL = 10;
+// batas posting terjadwal (otomatis) per akun per hari; posting manual (/dadakan, /posting) tidak dihitung
+const MAKS_PER_HARI = Math.max(1, parseInt(process.env.THREADS_MAKS_HARI, 10) || 1);
 // "7:00, 12:00 19:00" -> "07:00,12:00,19:00" (urut, unik); null bila ada jam yang salah
 function rapikanJadwal(teks) {
   const jam = String(teks).split(/[,;\s]+/).filter(Boolean);
@@ -316,6 +318,7 @@ function buatAkun(deps, cfg) {
     draf: s0.draf || null,
     drafTanggal: s0.drafTanggal || '',
     terakhirPosting: s0.terakhirPosting || '',
+    otoHari: s0.otoHari || { tanggal: '', n: 0 }, // jumlah posting terjadwal hari ini
     slotSelesai: s0.slotSelesai || '', // slot terjadwal terakhir yang sudah ditangani, "YYYY-MM-DD HH:MM"
     drafSlot: s0.drafSlot || '',
     topikNanti: s0.topikNanti || '',
@@ -332,6 +335,10 @@ function buatAkun(deps, cfg) {
   };
   st.set.panjang = rapikanPanjang(st.set.panjang) || bawaan().panjang;
   const simpan = () => writeJson(F, st);
+  const otoHariIni = (tgl) => (st.otoHari?.tanggal === tgl ? st.otoHari.n : 0);
+  const kuotaHabis = (tgl) => otoHariIni(tgl) >= MAKS_PER_HARI;
+  let otoPerluCek = !s0.otoHari; // data/ baru (deploy ulang): cek sekali ke Threads apakah hari ini sudah posting
+  const catatOto = (tgl) => { st.otoHari = { tanggal: tgl, n: otoHariIni(tgl) + 1 }; };
   const daftarProduk = () => produkDari(st.set.affiliate);
   const affiliateAktif = () => !st.set.affiliateOff && daftarProduk().length > 0;
   // balasan affiliate: caption pendek dari AI (gaya akun) + link produk, produk dipakai bergiliran
@@ -908,7 +915,7 @@ Balas HANYA dengan JSON: {"hook":"baris pertama","tag":"AI Threads","bagian":["t
     const daftar = PILAR.map((p, i) => `${i + 1}. ${p}`).join('\n');
     return `Threads
 Mode: ${st.set.mode}${st.set.jeda ? ' (DIJEDA)' : ''}
-Jadwal: ${daftarJadwal().join(', ')} WIB (${daftarJadwal().length}x sehari)
+Jadwal: ${daftarJadwal().join(', ')} WIB (maks ${MAKS_PER_HARI} utas otomatis/hari, hari ini ${otoHariIni(sekarang().tanggal)})
 Niche: ${st.set.niche === 'horor' ? 'horor (cerita seram/menegangkan dari Reddit, diceritakan ulang; /topik tidak dipakai)' : 'umum'}
 Topik: ${st.set.topik}${st.topikNanti ? `\nTopik titipan untuk jadwal berikutnya: ${st.topikNanti}` : ''}
 Panjang: ${st.set.panjang} bagian
@@ -1027,7 +1034,7 @@ Perintah:
     } else if (cmd === '/jadwal') {
       const j = rapikanJadwal(arg);
       if (!j) await say(chat, `Format jam salah. Contoh: /jadwal 19:00 atau /jadwal 07:00,12:00,19:00 (maksimal ${MAKS_JADWAL} jam).`);
-      else { st.set.jadwal = j; st.drafSlot = ''; simpan(); await say(chat, `Jadwal posting: ${j.split(',').join(', ')} WIB (${j.split(',').length}x sehari).`); }
+      else { st.set.jadwal = j; st.drafSlot = ''; simpan(); await say(chat, `Jadwal posting: ${j.split(',').join(', ')} WIB. Batas ${MAKS_PER_HARI} utas otomatis per hari: yang terkirim jam pertama yang berhasil, jam berikutnya jadi cadangan bila gagal.`); }
     } else if (cmd === '/mode') {
       if (!['setuju', 'otomatis'].includes(arg)) await say(chat, 'Pilih: /mode setuju (draf dikirim dulu) atau /mode otomatis (langsung posting).');
       else { st.set.mode = arg; simpan(); await say(chat, `Mode: ${arg}.`); }
@@ -1165,11 +1172,16 @@ Perintah:
     await kunci(async () => {
       let slot = null;
       try {
+        if (otoPerluCek && adaToken() && st.otoHari.tanggal !== tanggal) {
+          otoPerluCek = false;
+          if (await sudahPostingSejak(`${tanggal} 00:00`)) { st.otoHari = { tanggal, n: MAKS_PER_HARI }; simpan(); }
+        }
         if (st.set.mode === 'setuju') {
           // draf yang sudah disetujui diposting saat jamnya tiba
           if (st.draf?.disetujui && adaToken() && wib().slice(0, 16) >= (st.draf.slotKey || '')) {
             const d = st.draf;
             const link = await posting(d);
+            catatOto(wib().slice(0, 10));
             if (d.slotKey) st.slotSelesai = d.slotKey;
             simpan();
             await kirimPreview(owner, d, link, 'Posting terjadwal terkirim');
@@ -1179,6 +1191,7 @@ Perintah:
           const jam = daftarJadwal().find((x) => menit >= keMenit(x) - 60 && menit < keMenit(x) + 120);
           const key = jam && `${tanggal} ${jam}`;
           if (!jam || key <= st.slotSelesai || key === st.drafSlot || st.draf?.disetujui) return;
+          if (kuotaHabis(tanggal)) return; // kuota utas terjadwal hari ini sudah habis
           slot = { jam, key };
           if ((st.gagal[key] || 0) >= 3) return;
           st.drafSlot = key; simpan();
@@ -1188,9 +1201,11 @@ Perintah:
         }
         slot = slotJatuhTempo();
         if (!slot || !adaToken() || (st.gagal[slot.key] || 0) >= 3) return;
-        if (await sudahPostingSejak(slot.key)) { st.slotSelesai = slot.key; simpan(); return; }
+        if (kuotaHabis(tanggal)) { if (slot.key > st.slotSelesai) { st.slotSelesai = slot.key; simpan(); } return; }
+        if (await sudahPostingSejak(slot.key)) { catatOto(tanggal); st.slotSelesai = slot.key; simpan(); return; }
         const draf = await tulisTerjadwal();
         const link = await posting(draf);
+        catatOto(tanggal);
         st.slotSelesai = slot.key; simpan();
         await kirimPreview(owner, draf, link, `Posting jam ${slot.jam} terkirim`);
       } catch (e) {
